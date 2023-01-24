@@ -4,15 +4,23 @@
 
 class App {
 public:
-	bool isInitialized{ false };
-	int frameNumber{ 0 };
-
-	VkExtent2D windowExtent{ 800, 600 };
-
-	struct SDL_Window* window{ nullptr };
-
-	void init();
-	void cleanup();
-	void draw();
+	App();
+	App(const App&) = delete; // delete copy constructor
+	App& operator= (const App&) = delete; // delete copy assignment operator
+	~App();
 	void run();
+private:
+	bool isInitialized = false;
+	int frameNumber = 0;
+
+	struct SDL_Window* window = nullptr;
+	VkExtent2D windowExtent = {800, 600};
+
+	VkInstance instance;
+	VkDebugUtilsMessengerEXT debugMessenger;
+	VkPhysicalDevice physicalDevice;
+	VkDevice device;
+	VkSurfaceKHR surface;
+
+	void init_vulkan();
 };
