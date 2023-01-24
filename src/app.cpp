@@ -35,6 +35,7 @@ App::App()
 
 	initVulkan();
 	initSwapchain();
+	initCommands();
 
 	isInitialized = true;
 }
@@ -99,6 +100,10 @@ void App::initVulkan()
 	vkb::Device vkbDevice = deviceBuilder.build().value();
 	device = vkbDevice.device;
 	gpu = physicalDevice.physical_device;
+
+	// Get graphics queue with vkBootstrap
+	graphicsQueue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
+	graphicsQueueFamily = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
 }
 
 void App::initSwapchain()
@@ -115,4 +120,24 @@ void App::initSwapchain()
 	swapchainImages = vkbSwapchain.get_images().value();
 	swapchainImageViews = vkbSwapchain.get_image_views().value();
 	swapchainImageFormat = vkbSwapchain.image_format;
+}
+
+void App::initCommands()
+{
+	// Create command pool for commands submitted to the graphics queue
+	VkCommandPoolCreateInfo commandPoolInfo = {};
+	commandPoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	commandPoolInfo.pNext = nullptr;
+	commandPoolInfo.queueFamilyIndex = graphicsQueueFamily;
+	commandPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+	VK_CHECK(vkCreateCommandPool(device, &commandPoolInfo, nullptr, &commandPool));
+
+	// Allocate command buffer
+	VkCommandBufferAllocateInfo cmdAllocInfo = {};
+	cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	cmdAllocInfo.pNext = nullptr;
+	cmdAllocInfo.commandPool = commandPool;
+	cmdAllocInfo.commandBufferCount = 1;
+	cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	VK_CHECK(vkAllocateCommandBuffers(device, &cmdAllocInfo, &mainCommandBuffer));
 }
