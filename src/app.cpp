@@ -28,3 +28,18 @@ void App::cleanup()
 		SDL_DestroyWindow(window);
 	}
 }
+
+void App::run()
+{
+	SDL_Event e;
+	bool quitSignal = false;
+	
+	//main loop
+	while (!quitSignal)
+	{
+		while (SDL_PollEvent(&e) != 0)
+		{
+			if (e.type == SDL_QUIT) quitSignal = true;
+		}
+	}
+}
