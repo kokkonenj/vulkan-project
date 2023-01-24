@@ -34,9 +34,13 @@ private:
 	VkCommandPool commandPool;
 	VkCommandBuffer mainCommandBuffer;
 
+	VkSemaphore presentSemaphore, renderSemaphore;
+	VkFence renderFence;
+
 	void initVulkan();
 	void initSwapchain();
 	void initCommands();
+	void initSyncStructures();
 
 	void draw();
 };

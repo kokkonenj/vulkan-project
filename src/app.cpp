@@ -36,6 +36,7 @@ App::App()
 	initVulkan();
 	initSwapchain();
 	initCommands();
+	initSyncStructures();
 
 	isInitialized = true;
 }
@@ -44,6 +45,10 @@ App::~App()
 {
 	if (isInitialized)
 	{
+		vkWaitForFences(device, 1, &renderFence, true, 1000000000); // wait for GPU to finish
+		vkDestroyFence(device, renderFence, nullptr);
+		vkDestroySemaphore(device, renderSemaphore, nullptr);
+		vkDestroySemaphore(device, presentSemaphore, nullptr);
 		vkDestroyCommandPool(device, commandPool, nullptr);
 		vkDestroySwapchainKHR(device, swapchain, nullptr);
 		for (int i = 0; i < swapchainImageViews.size(); i++)
@@ -70,6 +75,7 @@ void App::run()
 		{
 			if (e.type == SDL_QUIT) quitSignal = true;
 		}
+		draw();
 	}
 }
 
@@ -141,4 +147,95 @@ void App::initCommands()
 	cmdAllocInfo.commandBufferCount = 1;
 	cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 	VK_CHECK(vkAllocateCommandBuffers(device, &cmdAllocInfo, &mainCommandBuffer));
+}
+
+void App::initSyncStructures()
+{
+	// Create synchronization structures
+	VkFenceCreateInfo fenceCreateInfo = {};
+	fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+	fenceCreateInfo.pNext = nullptr;
+	fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+	VK_CHECK(vkCreateFence(device, &fenceCreateInfo, nullptr, &renderFence));
+
+	// Create semaphores
+	VkSemaphoreCreateInfo semaphoreCreateInfo = {};
+	semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+	semaphoreCreateInfo.pNext = nullptr;
+	semaphoreCreateInfo.flags = 0;
+	VK_CHECK(vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &presentSemaphore));
+	VK_CHECK(vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &renderSemaphore));
+}
+
+void App::draw()
+{
+	if (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED)
+	{
+		return;
+	}
+	// Wait until GPU has finished rendering last frame
+	VK_CHECK(vkWaitForFences(device, 1, &renderFence, true, 1000000000));
+	VK_CHECK(vkResetFences(device, 1, &renderFence));
+
+	// Request image from the swapchain
+	uint32_t swapchainImageIndex;
+	VK_CHECK(vkAcquireNextImageKHR(device, swapchain, 1000000000, presentSemaphore, nullptr, &swapchainImageIndex));
+
+	// Reset command buffer
+	VK_CHECK(vkResetCommandBuffer(mainCommandBuffer, 0));
+
+	// Begin command buffer recording
+	VkCommandBufferBeginInfo cmdBeginInfo = {};
+	cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	cmdBeginInfo.pNext = nullptr;
+	cmdBeginInfo.pInheritanceInfo = nullptr;
+	cmdBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	VK_CHECK(vkBeginCommandBuffer(mainCommandBuffer, &cmdBeginInfo));
+
+	// Color of the screen
+	VkImageSubresourceRange ISR = {};
+	ISR.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	ISR.baseMipLevel = 0;
+	ISR.levelCount = 1;
+	ISR.baseArrayLayer = 0;
+	ISR.layerCount = 1;
+
+	VkClearColorValue color;
+	float red = abs(sin(frameNumber / 120.f));
+	float blue = abs(sin(frameNumber / 120.f + 1.57f));
+	color = { red, 0.0f, blue, 1.0f };
+	vkCmdClearColorImage(mainCommandBuffer,
+		swapchainImages[swapchainImageIndex],
+		VK_IMAGE_LAYOUT_GENERAL,
+		&color,
+		1,
+		&ISR);
+	VK_CHECK(vkEndCommandBuffer(mainCommandBuffer));
+
+	// submit image to the queue
+	VkSubmitInfo submit = {};
+	submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submit.pNext = nullptr;
+	VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	submit.pWaitDstStageMask = &waitStage;
+	submit.waitSemaphoreCount = 1;
+	submit.pWaitSemaphores = &presentSemaphore;
+	submit.signalSemaphoreCount = 1;
+	submit.pSignalSemaphores = &renderSemaphore;
+	submit.commandBufferCount = 1;
+	submit.pCommandBuffers = &mainCommandBuffer;
+	VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submit, renderFence));
+
+	// put rendered image to visible window
+	VkPresentInfoKHR presentInfo = {};
+	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+	presentInfo.pNext = nullptr;
+	presentInfo.pSwapchains = &swapchain;
+	presentInfo.swapchainCount = 1;
+	presentInfo.pWaitSemaphores = &renderSemaphore;
+	presentInfo.waitSemaphoreCount = 1;
+	presentInfo.pImageIndices = &swapchainImageIndex;
+	VK_CHECK(vkQueuePresentKHR(graphicsQueue, &presentInfo));
+
+	frameNumber++;
 }
