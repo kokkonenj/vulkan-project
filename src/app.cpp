@@ -16,6 +16,7 @@ do																\
 	}															\
 } while (0);													\
 
+// public
 App::App()
 {
 	// Initialize SDL
@@ -31,6 +32,9 @@ App::App()
 		windowExtent.height,
 		windowFlags
 	);
+
+	initVulkan();
+	initSwapchain();
 
 	isInitialized = true;
 }
@@ -56,4 +60,50 @@ void App::run()
 			if (e.type == SDL_QUIT) quitSignal = true;
 		}
 	}
+}
+
+// private
+void App::initVulkan()
+{
+	// Get instance and debug messenger using vkBootstrap
+	vkb::InstanceBuilder builder;
+	auto instRet = builder.set_app_name("Vulkan App")
+		.request_validation_layers(true)
+		.require_api_version(1, 1, 0)
+		.use_default_debug_messenger()
+		.build();
+	vkb::Instance vkbInst = instRet.value();
+	instance = vkbInst.instance;
+	debugMessenger = vkbInst.debug_messenger;
+
+	// Get surface of the window
+	SDL_Vulkan_CreateSurface(window, instance, &surface);
+
+	// Select device with vkBootstrap
+	vkb::PhysicalDeviceSelector selector{ vkbInst };
+	vkb::PhysicalDevice physicalDevice = selector
+		.set_minimum_version(1, 1)
+		.set_surface(surface)
+		.select()
+		.value();
+	vkb::DeviceBuilder deviceBuilder{ physicalDevice };
+	vkb::Device vkbDevice = deviceBuilder.build().value();
+	device = vkbDevice.device;
+	gpu = physicalDevice.physical_device;
+}
+
+void App::initSwapchain()
+{
+	// Create swapchain using vkBootstrap
+	vkb::SwapchainBuilder swapchainbuilder{ gpu, device, surface };
+	vkb::Swapchain vkbSwapchain = swapchainbuilder
+		.use_default_format_selection()
+		.set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
+		.set_desired_extent(windowExtent.width, windowExtent.height)
+		.build()
+		.value();
+	swapchain = vkbSwapchain.swapchain;
+	swapchainImages = vkbSwapchain.get_images().value();
+	swapchainImageViews = vkbSwapchain.get_image_views().value();
+	swapchainImageFormat = vkbSwapchain.image_format;
 }

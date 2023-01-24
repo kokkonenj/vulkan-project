@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vk_types.h>
+#include <vector>
 
 class App {
 public:
@@ -18,9 +19,15 @@ private:
 
 	VkInstance instance;
 	VkDebugUtilsMessengerEXT debugMessenger;
-	VkPhysicalDevice physicalDevice;
+	VkPhysicalDevice gpu;
 	VkDevice device;
 	VkSurfaceKHR surface;
 
-	void init_vulkan();
+	VkSwapchainKHR swapchain;
+	VkFormat swapchainImageFormat;
+	std::vector<VkImage> swapchainImages;
+	std::vector<VkImageView> swapchainImageViews;
+
+	void initVulkan();
+	void initSwapchain();
 };
