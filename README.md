@@ -9,5 +9,5 @@ Building the program:
   2. Configure and generate project files
   3. Open project in Visual Studio, build & run vulkan-project
 
-If you get an error saying "missing SDL2.dll", go to your SDL2 folder and copy "lib/x64/SDL2.dll" "vulkan-project/bin/Debug(or Release)" where
+If you get an error saying "missing SDL2.dll", go to your SDL2 folder and copy "lib/x64/SDL2.dll" to "vulkan-project/bin/Debug(or Release)" where
 "vulcan-project.exe" should be. Re-run and program should now work. If not, check that you are building for x64.
