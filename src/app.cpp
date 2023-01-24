@@ -1,8 +1,22 @@
 #include "app.h"
 #include <SDL.h>
 #include <SDL_vulkan.h>
+#include <VkBootstrap.h>
+#include <iostream>
 
-void App::init()
+// Check for unhandled vulkan errors, and abort if encountered
+#define VK_CHECK(x)												\
+do																\
+{																\
+	VkResult err = x;											\
+	if (err)													\
+	{															\
+		std::cerr << "Vulkan error: " << err << std::endl;		\
+		std::abort();											\
+	}															\
+} while (0);													\
+
+App::App()
 {
 	// Initialize SDL
 	SDL_Init(SDL_INIT_VIDEO);
@@ -21,7 +35,7 @@ void App::init()
 	isInitialized = true;
 }
 
-void App::cleanup()
+App::~App()
 {
 	if (isInitialized)
 	{
