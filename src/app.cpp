@@ -43,6 +43,15 @@ App::~App()
 {
 	if (isInitialized)
 	{
+		vkDestroySwapchainKHR(device, swapchain, nullptr);
+		for (int i = 0; i < swapchainImageViews.size(); i++)
+		{
+			vkDestroyImageView(device, swapchainImageViews[i], nullptr);
+		}
+		vkDestroyDevice(device, nullptr);
+		vkDestroySurfaceKHR(instance, surface, nullptr);
+		vkb::destroy_debug_utils_messenger(instance, debugMessenger);
+		vkDestroyInstance(instance, nullptr);
 		SDL_DestroyWindow(window);
 	}
 }
