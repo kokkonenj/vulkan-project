@@ -28,6 +28,13 @@ private:
 	std::vector<VkImage> swapchainImages;
 	std::vector<VkImageView> swapchainImageViews;
 
+	VkQueue graphicsQueue;
+	uint32_t graphicsQueueFamily;
+
+	VkCommandPool commandPool;
+	VkCommandBuffer mainCommandBuffer;
+
 	void initVulkan();
 	void initSwapchain();
+	void initCommands();
 };
