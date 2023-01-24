@@ -44,6 +44,7 @@ App::~App()
 {
 	if (isInitialized)
 	{
+		vkDestroyCommandPool(device, commandPool, nullptr);
 		vkDestroySwapchainKHR(device, swapchain, nullptr);
 		for (int i = 0; i < swapchainImageViews.size(); i++)
 		{

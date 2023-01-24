@@ -37,4 +37,6 @@ private:
 	void initVulkan();
 	void initSwapchain();
 	void initCommands();
+
+	void draw();
 };
