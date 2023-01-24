@@ -9,7 +9,7 @@ public:
 
 	VkExtent2D windowExtent{ 800, 600 };
 
-	struct SDL_window* window{ nullptr };
+	struct SDL_Window* window{ nullptr };
 
 	void init();
 	void cleanup();
