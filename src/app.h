@@ -34,12 +34,17 @@ private:
 	VkCommandPool commandPool;
 	VkCommandBuffer mainCommandBuffer;
 
+	VkRenderPass renderPass;
+	std::vector<VkFramebuffer> frameBuffers;
+
 	VkSemaphore presentSemaphore, renderSemaphore;
 	VkFence renderFence;
 
 	void initVulkan();
 	void initSwapchain();
 	void initCommands();
+	void initDefaultRenderpass();
+	void initFramebuffers();
 	void initSyncStructures();
 
 	void draw();
