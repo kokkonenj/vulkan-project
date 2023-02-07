@@ -2,8 +2,12 @@
 #include <SDL.h>
 #include <SDL_vulkan.h>
 #include <VkBootstrap.h>
+
 #include <iostream>
 #include <fstream>
+
+#define VMA_IMPLEMENTATION
+#include "vk_mem_alloc.h"
 
 // Check for unhandled vulkan errors, and abort if encountered
 #define VK_CHECK(x)												\
@@ -107,6 +111,13 @@ void App::initVulkan()
 	// Get graphics queue with vkBootstrap
 	graphicsQueue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
 	graphicsQueueFamily = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
+
+	// Initialize memory allocator
+	VmaAllocatorCreateInfo allocatorInfo = {};
+	allocatorInfo.physicalDevice = gpu;
+	allocatorInfo.device = device;
+	allocatorInfo.instance = instance;
+	vmaCreateAllocator(&allocatorInfo, &allocator);
 }
 
 void App::initSwapchain()

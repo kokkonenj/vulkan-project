@@ -69,6 +69,8 @@ private:
 
 	DeletionQueue mainDeletionQueue;
 
+	VmaAllocator allocator;
+
 	void initVulkan();
 	void initSwapchain();
 	void initCommands();
