@@ -406,7 +406,8 @@ void App::draw()
 	vkCmdBindPipeline(mainCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, meshPipeline);
 	VkDeviceSize offset = 0;
 	vkCmdBindVertexBuffers(mainCommandBuffer, 0, 1, &triangleMesh.vertexBuffer.buffer, &offset);
-	vkCmdDraw(mainCommandBuffer, triangleMesh.vertices.size(), 1, 0, 0);
+	vkCmdBindIndexBuffer(mainCommandBuffer, triangleMesh.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+	vkCmdDrawIndexed(mainCommandBuffer, static_cast<uint32_t>(triangleMesh.indices.size()), 1, 0, 0, 0);
 	/* ----- RENDERING COMMANDS END ----- */
 
 	// Finalize render pass and command buffer
@@ -486,32 +487,48 @@ void App::loadMeshes()
 	triangleMesh.vertices[1].color = { 0.0f, 1.0f, 0.0f };
 	triangleMesh.vertices[2].color = { 1.0f, 0.0f, 0.0f };
 
+	triangleMesh.indices = { 0, 1, 2 };
+
 	uploadMesh(triangleMesh);
 }
 
 void App::uploadMesh(Mesh& mesh)
 {
 	// Allocate vertex buffer
-	VkBufferCreateInfo bufferInfo = {};
-	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-	bufferInfo.size = mesh.vertices.size() * sizeof(Vertex);
-	bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+	VkBufferCreateInfo vBufferInfo = {};
+	vBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	vBufferInfo.size = mesh.vertices.size() * sizeof(Vertex);
+	vBufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+
+	// Allocate index buffer
+	VkBufferCreateInfo iBufferInfo = {};
+	iBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	iBufferInfo.size = mesh.indices.size() * sizeof(uint16_t);
+	iBufferInfo.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
 
 	VmaAllocationCreateInfo vmaAllocInfo = {};
 	vmaAllocInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
 
 	// Allocation
-	VK_CHECK(vmaCreateBuffer(allocator, &bufferInfo, &vmaAllocInfo,
+	VK_CHECK(vmaCreateBuffer(allocator, &vBufferInfo, &vmaAllocInfo,
 		&mesh.vertexBuffer.buffer, &mesh.vertexBuffer.allocation, nullptr));
+	VK_CHECK(vmaCreateBuffer(allocator, &iBufferInfo, &vmaAllocInfo,
+		&mesh.indexBuffer.buffer, &mesh.indexBuffer.allocation, nullptr));
 
 	mainDeletionQueue.push_function([=]()
 		{
 			vmaDestroyBuffer(allocator, mesh.vertexBuffer.buffer, mesh.vertexBuffer.allocation);
+			vmaDestroyBuffer(allocator, mesh.indexBuffer.buffer, mesh.indexBuffer.allocation);
 		});
 
 	// Copy vertex data
-	void* data;
-	vmaMapMemory(allocator, mesh.vertexBuffer.allocation, &data);
-	memcpy(data, mesh.vertices.data(), mesh.vertices.size() * sizeof(Vertex));
+	void* vData;
+	vmaMapMemory(allocator, mesh.vertexBuffer.allocation, &vData);
+	memcpy(vData, mesh.vertices.data(), mesh.vertices.size() * sizeof(Vertex));
 	vmaUnmapMemory(allocator, mesh.vertexBuffer.allocation);
+
+	void* iData;
+	vmaMapMemory(allocator, mesh.indexBuffer.allocation, &iData);
+	memcpy(iData, mesh.indices.data(), mesh.indices.size() * sizeof(uint16_t));
+	vmaUnmapMemory(allocator, mesh.indexBuffer.allocation);
 }

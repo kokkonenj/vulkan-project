@@ -24,4 +24,6 @@ struct Mesh
 {
 	std::vector<Vertex> vertices;
 	AllocatedBuffer vertexBuffer;
+	std::vector<uint16_t> indices;
+	AllocatedBuffer indexBuffer;
 };
