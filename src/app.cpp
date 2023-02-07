@@ -50,17 +50,7 @@ App::~App()
 	if (isInitialized)
 	{
 		vkDeviceWaitIdle(device); // wait for GPU to finish
-		vkDestroyFence(device, renderFence, nullptr);
-		vkDestroySemaphore(device, renderSemaphore, nullptr);
-		vkDestroySemaphore(device, presentSemaphore, nullptr);
-		vkDestroyCommandPool(device, commandPool, nullptr);
-		vkDestroySwapchainKHR(device, swapchain, nullptr);
-		vkDestroyRenderPass(device, renderPass, nullptr);
-		for (int i = 0; i < frameBuffers.size(); i++)
-		{
-			vkDestroyFramebuffer(device, frameBuffers[i], nullptr);
-			vkDestroyImageView(device, swapchainImageViews[i], nullptr);
-		}
+		mainDeletionQueue.flush();
 		vkDestroyDevice(device, nullptr);
 		vkDestroySurfaceKHR(instance, surface, nullptr);
 		vkb::destroy_debug_utils_messenger(instance, debugMessenger);
@@ -133,6 +123,11 @@ void App::initSwapchain()
 	swapchainImages = vkbSwapchain.get_images().value();
 	swapchainImageViews = vkbSwapchain.get_image_views().value();
 	swapchainImageFormat = vkbSwapchain.image_format;
+
+	mainDeletionQueue.push_function([=]()
+		{
+			vkDestroySwapchainKHR(device, swapchain, nullptr);
+		});
 }
 
 void App::initCommands()
@@ -153,6 +148,11 @@ void App::initCommands()
 	cmdAllocInfo.commandBufferCount = 1;
 	cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 	VK_CHECK(vkAllocateCommandBuffers(device, &cmdAllocInfo, &mainCommandBuffer));
+
+	mainDeletionQueue.push_function([=]()
+		{
+			vkDestroyCommandPool(device, commandPool, nullptr);
+		});
 }
 
 void App::initDefaultRenderpass()
@@ -185,6 +185,11 @@ void App::initDefaultRenderpass()
 	renderPassInfo.pSubpasses = &subpass;
 
 	VK_CHECK(vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass));
+
+	mainDeletionQueue.push_function([=]()
+		{
+			vkDestroyRenderPass(device, renderPass, nullptr);
+		});
 }
 
 void App::initFramebuffers()
@@ -205,6 +210,12 @@ void App::initFramebuffers()
 	{
 		frameBufferInfo.pAttachments = &swapchainImageViews[i];
 		VK_CHECK(vkCreateFramebuffer(device, &frameBufferInfo, nullptr, &frameBuffers[i]));
+
+		mainDeletionQueue.push_function([=]()
+			{
+				vkDestroyFramebuffer(device, frameBuffers[i], nullptr);
+				vkDestroyImageView(device, swapchainImageViews[i], nullptr);
+			});
 	}
 }
 
@@ -217,6 +228,11 @@ void App::initSyncStructures()
 	fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 	VK_CHECK(vkCreateFence(device, &fenceCreateInfo, nullptr, &renderFence));
 
+	mainDeletionQueue.push_function([=]()
+		{
+			vkDestroyFence(device, renderFence, nullptr);
+		});
+
 	// Create semaphores
 	VkSemaphoreCreateInfo semaphoreCreateInfo = {};
 	semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -224,6 +240,12 @@ void App::initSyncStructures()
 	semaphoreCreateInfo.flags = 0;
 	VK_CHECK(vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &presentSemaphore));
 	VK_CHECK(vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &renderSemaphore));
+
+	mainDeletionQueue.push_function([=]()
+		{
+			vkDestroySemaphore(device, presentSemaphore, nullptr);
+			vkDestroySemaphore(device, renderSemaphore, nullptr);
+		});
 }
 
 void App::initPipelines()
@@ -287,6 +309,15 @@ void App::initPipelines()
 	// Build the pipeline
 	pipelineBuilder.pipelineLayout = trianglePipelineLayout;
 	trianglePipeline = pipelineBuilder.buildPipeline(device, renderPass);
+
+	// Deletion of shader modules and pipelines
+	vkDestroyShaderModule(device, triangleFragmentShader, nullptr);
+	vkDestroyShaderModule(device, triangleVertexShader, nullptr);
+	mainDeletionQueue.push_function([=]()
+		{
+			vkDestroyPipeline(device, trianglePipeline, nullptr);
+			vkDestroyPipelineLayout(device, trianglePipelineLayout, nullptr);
+		});
 }
 
 void App::draw()
