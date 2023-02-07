@@ -403,7 +403,7 @@ void App::draw()
 	vkCmdBeginRenderPass(mainCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
 	/* ----- RENDERING COMMANDS BEGIN ----- */
-	vkCmdBindPipeline(mainCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, trianglePipeline);
+	vkCmdBindPipeline(mainCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, meshPipeline);
 	VkDeviceSize offset = 0;
 	vkCmdBindVertexBuffers(mainCommandBuffer, 0, 1, &triangleMesh.vertexBuffer.buffer, &offset);
 	vkCmdDraw(mainCommandBuffer, triangleMesh.vertices.size(), 1, 0, 0);
