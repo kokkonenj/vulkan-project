@@ -314,11 +314,9 @@ void App::draw()
 	cmdBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 	VK_CHECK(vkBeginCommandBuffer(mainCommandBuffer, &cmdBeginInfo));
 
-	// Color of the screen
+	// Color of the screen (background)
 	VkClearValue clearValue;
-	float red = abs(sin(frameNumber / 120.f));
-	float blue = abs(sin(frameNumber / 120.f + 1.57f));
-	clearValue.color = { red, 0.0f, blue, 1.0f };
+	clearValue.color = { 0.0f, 0.0f, 0.0f, 1.0f };
 	
 	// Starting the renderpass
 	VkRenderPassBeginInfo renderPassInfo = {};
