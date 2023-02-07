@@ -9,4 +9,5 @@ namespace VkInit {
 	VkPipelineRasterizationStateCreateInfo rasterizationStateCreateInfo(VkPolygonMode polygonMode);
 	VkPipelineMultisampleStateCreateInfo multisamplingStateCreateInfo();
 	VkPipelineColorBlendAttachmentState colorBlendAttachmentState();
+	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo();
 }
