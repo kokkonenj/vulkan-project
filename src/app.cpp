@@ -247,6 +247,46 @@ void App::initPipelines()
 	{
 		std::cout << "Triangle vertex shader successfully loaded" << std::endl;
 	}
+
+	// Create pipeline layout that controls input and output of shaders
+	VkPipelineLayoutCreateInfo pipelineLayoutInfo = VkInit::pipelineLayoutCreateInfo();
+	VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &trianglePipelineLayout));
+
+	// Create-info for vertex and fragment stages
+	PipelineBuilder pipelineBuilder;
+	pipelineBuilder.shaderStages.push_back(
+		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_VERTEX_BIT, triangleVertexShader));
+	pipelineBuilder.shaderStages.push_back(
+		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_FRAGMENT_BIT, triangleFragmentShader));
+	
+	// Input info controls how to read vertices from buffers
+	pipelineBuilder.vertexInputInfo = VkInit::vertexInputStateCreateInfo();
+
+	// Input assembly controls how to draw (triangle list, lines or points)
+	pipelineBuilder.inputAssembly = VkInit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+
+	// Viewport and scissor from swapchain extents
+	pipelineBuilder.viewport.x = 0.0f;
+	pipelineBuilder.viewport.y = 0.0f;
+	pipelineBuilder.viewport.width = (float)windowExtent.width;
+	pipelineBuilder.viewport.height = (float)windowExtent.height;
+	pipelineBuilder.viewport.minDepth = 0.0f;
+	pipelineBuilder.viewport.maxDepth = 1.0f;
+	pipelineBuilder.scissor.offset = { 0, 0 };
+	pipelineBuilder.scissor.extent = windowExtent;
+
+	// Configure rasterizer
+	pipelineBuilder.rasterizer = VkInit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
+
+	// Configure multisampling
+	pipelineBuilder.multisampling = VkInit::multisamplingStateCreateInfo();
+
+	// Configure color blend attachment (no blending, RGBA)
+	pipelineBuilder.colorBlendAttachment = VkInit::colorBlendAttachmentState();
+
+	// Build the pipeline
+	pipelineBuilder.pipelineLayout = trianglePipelineLayout;
+	trianglePipeline = pipelineBuilder.buildPipeline(device, renderPass);
 }
 
 void App::draw()
@@ -292,6 +332,11 @@ void App::draw()
 	renderPassInfo.clearValueCount = 1;
 	renderPassInfo.pClearValues = &clearValue;
 	vkCmdBeginRenderPass(mainCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+	/* ----- RENDERING COMMANDS BEGIN ----- */
+	vkCmdBindPipeline(mainCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, trianglePipeline);
+	vkCmdDraw(mainCommandBuffer, 3, 1, 0, 0);
+	/* ----- RENDERING COMMANDS END ----- */
 
 	// Finalize render pass and command buffer
 	vkCmdEndRenderPass(mainCommandBuffer);

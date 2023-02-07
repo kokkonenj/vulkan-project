@@ -1,6 +1,8 @@
 #pragma once
 
-#include <vk_types.h>
+#include "vk_types.h"
+#include "vk_initializers.h"
+#include "vk_pipeline.h"
 #include <vector>
 
 class App {
@@ -39,6 +41,10 @@ private:
 
 	VkSemaphore presentSemaphore, renderSemaphore;
 	VkFence renderFence;
+
+	VkPipelineLayout trianglePipelineLayout;
+
+	VkPipeline trianglePipeline;
 
 	void initVulkan();
 	void initSwapchain();
