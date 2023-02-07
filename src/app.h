@@ -8,6 +8,15 @@
 #include <deque>
 #include <functional>
 
+#include <glm/glm.hpp>
+#include <glm/gtx/transform.hpp>
+
+struct MeshPushConstants
+{
+	glm::vec4 data;
+	glm::mat4 renderMatrix;
+};
+
 struct DeletionQueue
 {
 	std::deque<std::function<void()>> deletors;
@@ -64,16 +73,18 @@ private:
 	VkSemaphore presentSemaphore, renderSemaphore;
 	VkFence renderFence;
 
-	VkPipelineLayout trianglePipelineLayout;
+	VmaAllocator allocator;
 
+	VkPipelineLayout trianglePipelineLayout;
 	VkPipeline trianglePipeline;
+	Mesh triangleMesh;
+
+	VkPipelineLayout meshPipelineLayout;
+	VkPipeline meshPipeline;
 
 	DeletionQueue mainDeletionQueue;
 
-	VmaAllocator allocator;
 
-	VkPipeline meshPipeline;
-	Mesh triangleMesh;
 
 	void initVulkan();
 	void initSwapchain();

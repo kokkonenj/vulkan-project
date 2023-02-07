@@ -346,6 +346,18 @@ void App::initPipelines()
 	pipelineBuilder.shaderStages.push_back(
 		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_FRAGMENT_BIT, triangleFragmentShader));
 
+	// Mesh pipeline layout definition
+	VkPipelineLayoutCreateInfo meshPipelineLayoutInfo = VkInit::pipelineLayoutCreateInfo();
+	VkPushConstantRange pushConstant;
+	pushConstant.offset = 0;
+	pushConstant.size = sizeof(MeshPushConstants);
+	pushConstant.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+	meshPipelineLayoutInfo.pPushConstantRanges = &pushConstant;
+	meshPipelineLayoutInfo.pushConstantRangeCount = 1;
+	VK_CHECK(vkCreatePipelineLayout(device, &meshPipelineLayoutInfo, nullptr, &meshPipelineLayout));
+
+	pipelineBuilder.pipelineLayout = meshPipelineLayout;
 	meshPipeline = pipelineBuilder.buildPipeline(device, renderPass);
 
 	// Deletion of shader modules and pipelines
@@ -357,6 +369,7 @@ void App::initPipelines()
 			vkDestroyPipeline(device, trianglePipeline, nullptr);
 			vkDestroyPipeline(device, meshPipeline, nullptr);
 			vkDestroyPipelineLayout(device, trianglePipelineLayout, nullptr);
+			vkDestroyPipelineLayout(device, meshPipelineLayout, nullptr);
 		});
 }
 
@@ -407,6 +420,20 @@ void App::draw()
 	VkDeviceSize offset = 0;
 	vkCmdBindVertexBuffers(mainCommandBuffer, 0, 1, &triangleMesh.vertexBuffer.buffer, &offset);
 	vkCmdBindIndexBuffer(mainCommandBuffer, triangleMesh.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+
+	// Model view matrix
+	glm::vec3 camPos = { 0.f, 0.f, -2.f };
+	glm::mat4 view = glm::translate(glm::mat4(1.f), camPos);
+	glm::mat4 proj = glm::perspective(glm::radians(70.f), 800.f / 600.f, 0.1f, 200.0f);
+	proj[1][1] *= -1.f;
+	glm::mat4 model = glm::rotate(glm::mat4(1.0f), glm::radians(frameNumber * 0.5f), glm::vec3(0, 1, 0));
+	glm::mat4 mvp = proj * view * model;
+	
+	MeshPushConstants constants;
+	constants.renderMatrix = mvp;
+	vkCmdPushConstants(mainCommandBuffer, meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 
+		0, sizeof(MeshPushConstants), &constants);
+
 	vkCmdDrawIndexed(mainCommandBuffer, static_cast<uint32_t>(triangleMesh.indices.size()), 1, 0, 0, 0);
 	/* ----- RENDERING COMMANDS END ----- */
 
