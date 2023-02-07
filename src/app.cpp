@@ -3,6 +3,7 @@
 #include <SDL_vulkan.h>
 #include <VkBootstrap.h>
 #include <iostream>
+#include <fstream>
 
 // Check for unhandled vulkan errors, and abort if encountered
 #define VK_CHECK(x)												\
@@ -39,6 +40,7 @@ App::App()
 	initDefaultRenderpass();
 	initFramebuffers();
 	initSyncStructures();
+	initPipelines();
 
 	isInitialized = true;
 }
@@ -196,10 +198,10 @@ void App::initFramebuffers()
 	frameBufferInfo.height = windowExtent.height;
 	frameBufferInfo.layers = 1;
 
-	const uint32_t swapchainImageCount = swapchainImages.size();
+	const size_t swapchainImageCount = swapchainImages.size();
 	frameBuffers = std::vector<VkFramebuffer>(swapchainImageCount);
 
-	for (int i = 0; i < swapchainImageCount; i++)
+	for (unsigned int i = 0; i < swapchainImageCount; i++)
 	{
 		frameBufferInfo.pAttachments = &swapchainImageViews[i];
 		VK_CHECK(vkCreateFramebuffer(device, &frameBufferInfo, nullptr, &frameBuffers[i]));
@@ -222,6 +224,29 @@ void App::initSyncStructures()
 	semaphoreCreateInfo.flags = 0;
 	VK_CHECK(vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &presentSemaphore));
 	VK_CHECK(vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &renderSemaphore));
+}
+
+void App::initPipelines()
+{
+	VkShaderModule triangleFragmentShader;
+	if (!loadShaderModule("../../shaders/triangle.frag.spv", &triangleFragmentShader))
+	{
+		std::cout << "Error loading triangle fragment shader module" << std::endl;
+	}
+	else
+	{
+		std::cout << "Triangle fragment shader successfully loaded" << std::endl;
+	}
+
+	VkShaderModule triangleVertexShader;
+	if (!loadShaderModule("../../shaders/triangle.vert.spv", &triangleVertexShader))
+	{
+		std::cout << "Error loading triangle vertex shader module" << std::endl;
+	}
+	else
+	{
+		std::cout << "Triangle vertex shader successfully loaded" << std::endl;
+	}
 }
 
 void App::draw()
@@ -298,4 +323,37 @@ void App::draw()
 	VK_CHECK(vkQueuePresentKHR(graphicsQueue, &presentInfo));
 
 	frameNumber++;
+}
+
+bool App::loadShaderModule(const char* filePath, VkShaderModule* outShaderModule)
+{
+	// Open the file with cursor at the end
+	std::ifstream file(filePath, std::ios::ate | std::ios::binary);
+	if (!file.is_open())
+	{
+		return false;
+	}
+
+	// Get filesize in bytes
+	size_t fileSize = (size_t)file.tellg();
+
+	// Read file content
+	std::vector<uint32_t> buffer(fileSize / sizeof(uint32_t));
+	file.seekg(0);
+	file.read((char*)buffer.data(), fileSize);
+	file.close();
+
+	VkShaderModuleCreateInfo shaderModuleInfo = {};
+	shaderModuleInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+	shaderModuleInfo.pNext = nullptr;
+	shaderModuleInfo.codeSize = buffer.size() * sizeof(uint32_t);
+	shaderModuleInfo.pCode = buffer.data();
+
+	VkShaderModule shaderModule;
+	if (vkCreateShaderModule(device, &shaderModuleInfo, nullptr, &shaderModule) != VK_SUCCESS)
+	{
+		return false;
+	}
+	*outShaderModule = shaderModule;
+	return true;
 }
