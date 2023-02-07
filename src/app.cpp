@@ -45,6 +45,7 @@ App::App()
 	initFramebuffers();
 	initSyncStructures();
 	initPipelines();
+	loadMeshes();
 
 	isInitialized = true;
 }
@@ -55,6 +56,7 @@ App::~App()
 	{
 		vkDeviceWaitIdle(device); // wait for GPU to finish
 		mainDeletionQueue.flush();
+		vmaDestroyAllocator(allocator);
 		vkDestroyDevice(device, nullptr);
 		vkDestroySurfaceKHR(instance, surface, nullptr);
 		vkb::destroy_debug_utils_messenger(instance, debugMessenger);
@@ -321,12 +323,39 @@ void App::initPipelines()
 	pipelineBuilder.pipelineLayout = trianglePipelineLayout;
 	trianglePipeline = pipelineBuilder.buildPipeline(device, renderPass);
 
+	// Build mesh pipeline
+	VertexInputDescription vertexDescription = Vertex::getVertexDescription();
+	pipelineBuilder.vertexInputInfo.pVertexAttributeDescriptions = vertexDescription.attributes.data();
+	pipelineBuilder.vertexInputInfo.vertexAttributeDescriptionCount = vertexDescription.attributes.size();
+	pipelineBuilder.vertexInputInfo.pVertexBindingDescriptions = vertexDescription.bindings.data();
+	pipelineBuilder.vertexInputInfo.vertexBindingDescriptionCount = vertexDescription.bindings.size();
+	pipelineBuilder.shaderStages.clear();
+
+	VkShaderModule meshVertexShader;
+	if (!loadShaderModule("../../shaders/mesh.vert.spv", &meshVertexShader))
+	{
+		std::cout << "Error loading mesh vertex shader module" << std::endl;
+	}
+	else
+	{
+		std::cout << "Mesh vertex shader successfully loaded" << std::endl;
+	}
+
+	pipelineBuilder.shaderStages.push_back(
+		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_VERTEX_BIT, meshVertexShader));
+	pipelineBuilder.shaderStages.push_back(
+		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_FRAGMENT_BIT, triangleFragmentShader));
+
+	meshPipeline = pipelineBuilder.buildPipeline(device, renderPass);
+
 	// Deletion of shader modules and pipelines
+	vkDestroyShaderModule(device, meshVertexShader, nullptr);
 	vkDestroyShaderModule(device, triangleFragmentShader, nullptr);
 	vkDestroyShaderModule(device, triangleVertexShader, nullptr);
 	mainDeletionQueue.push_function([=]()
 		{
 			vkDestroyPipeline(device, trianglePipeline, nullptr);
+			vkDestroyPipeline(device, meshPipeline, nullptr);
 			vkDestroyPipelineLayout(device, trianglePipelineLayout, nullptr);
 		});
 }
@@ -375,7 +404,9 @@ void App::draw()
 
 	/* ----- RENDERING COMMANDS BEGIN ----- */
 	vkCmdBindPipeline(mainCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, trianglePipeline);
-	vkCmdDraw(mainCommandBuffer, 3, 1, 0, 0);
+	VkDeviceSize offset = 0;
+	vkCmdBindVertexBuffers(mainCommandBuffer, 0, 1, &triangleMesh.vertexBuffer.buffer, &offset);
+	vkCmdDraw(mainCommandBuffer, triangleMesh.vertices.size(), 1, 0, 0);
 	/* ----- RENDERING COMMANDS END ----- */
 
 	// Finalize render pass and command buffer
@@ -441,4 +472,46 @@ bool App::loadShaderModule(const char* filePath, VkShaderModule* outShaderModule
 	}
 	*outShaderModule = shaderModule;
 	return true;
+}
+
+void App::loadMeshes()
+{
+	triangleMesh.vertices.resize(3);
+
+	triangleMesh.vertices[0].position = { 0.5f, 0.5f, 0.0f };
+	triangleMesh.vertices[1].position = { -0.5f, 0.5f, 0.0f };
+	triangleMesh.vertices[2].position = { 0.0f, -0.5f, 0.0f };
+
+	triangleMesh.vertices[0].color = { 0.0f, 0.0f, 1.0f };
+	triangleMesh.vertices[1].color = { 0.0f, 1.0f, 0.0f };
+	triangleMesh.vertices[2].color = { 1.0f, 0.0f, 0.0f };
+
+	uploadMesh(triangleMesh);
+}
+
+void App::uploadMesh(Mesh& mesh)
+{
+	// Allocate vertex buffer
+	VkBufferCreateInfo bufferInfo = {};
+	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	bufferInfo.size = mesh.vertices.size() * sizeof(Vertex);
+	bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+
+	VmaAllocationCreateInfo vmaAllocInfo = {};
+	vmaAllocInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+
+	// Allocation
+	VK_CHECK(vmaCreateBuffer(allocator, &bufferInfo, &vmaAllocInfo,
+		&mesh.vertexBuffer.buffer, &mesh.vertexBuffer.allocation, nullptr));
+
+	mainDeletionQueue.push_function([=]()
+		{
+			vmaDestroyBuffer(allocator, mesh.vertexBuffer.buffer, mesh.vertexBuffer.allocation);
+		});
+
+	// Copy vertex data
+	void* data;
+	vmaMapMemory(allocator, mesh.vertexBuffer.allocation, &data);
+	memcpy(data, mesh.vertices.data(), mesh.vertices.size() * sizeof(Vertex));
+	vmaUnmapMemory(allocator, mesh.vertexBuffer.allocation);
 }

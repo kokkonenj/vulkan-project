@@ -3,6 +3,7 @@
 #include "vk_types.h"
 #include "vk_initializers.h"
 #include "vk_pipeline.h"
+#include "mesh.h"
 #include <vector>
 #include <deque>
 #include <functional>
@@ -71,6 +72,9 @@ private:
 
 	VmaAllocator allocator;
 
+	VkPipeline meshPipeline;
+	Mesh triangleMesh;
+
 	void initVulkan();
 	void initSwapchain();
 	void initCommands();
@@ -82,4 +86,6 @@ private:
 	void draw();
 
 	bool loadShaderModule(const char* filePath, VkShaderModule* outShaderModule);
+	void loadMeshes();
+	void uploadMesh(Mesh& mesh);
 };
