@@ -8,7 +8,9 @@ add_executable(vulkan-project
     vk_pipeline.h
     vk_pipeline.cpp
     vk_initializers.h
-    vk_initializers.cpp)
+    vk_initializers.cpp
+    mesh.h
+    mesh.cpp)
 
 
 set_property(TARGET vulkan-project PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:vulkan-project>")
