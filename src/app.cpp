@@ -47,7 +47,7 @@ App::~App()
 {
 	if (isInitialized)
 	{
-		vkWaitForFences(device, 1, &renderFence, true, 1000000000); // wait for GPU to finish
+		vkDeviceWaitIdle(device); // wait for GPU to finish
 		vkDestroyFence(device, renderFence, nullptr);
 		vkDestroySemaphore(device, renderSemaphore, nullptr);
 		vkDestroySemaphore(device, presentSemaphore, nullptr);
@@ -250,23 +250,26 @@ void App::draw()
 	VK_CHECK(vkBeginCommandBuffer(mainCommandBuffer, &cmdBeginInfo));
 
 	// Color of the screen
-	VkImageSubresourceRange ISR = {};
-	ISR.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	ISR.baseMipLevel = 0;
-	ISR.levelCount = 1;
-	ISR.baseArrayLayer = 0;
-	ISR.layerCount = 1;
-
-	VkClearColorValue color;
+	VkClearValue clearValue;
 	float red = abs(sin(frameNumber / 120.f));
 	float blue = abs(sin(frameNumber / 120.f + 1.57f));
-	color = { red, 0.0f, blue, 1.0f };
-	vkCmdClearColorImage(mainCommandBuffer,
-		swapchainImages[swapchainImageIndex],
-		VK_IMAGE_LAYOUT_GENERAL,
-		&color,
-		1,
-		&ISR);
+	clearValue.color = { red, 0.0f, blue, 1.0f };
+	
+	// Starting the renderpass
+	VkRenderPassBeginInfo renderPassInfo = {};
+	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	renderPassInfo.pNext = nullptr;
+	renderPassInfo.renderPass = renderPass;
+	renderPassInfo.renderArea.offset.x = 0;
+	renderPassInfo.renderArea.offset.y = 0;
+	renderPassInfo.renderArea.extent = windowExtent;
+	renderPassInfo.framebuffer = frameBuffers[swapchainImageIndex];
+	renderPassInfo.clearValueCount = 1;
+	renderPassInfo.pClearValues = &clearValue;
+	vkCmdBeginRenderPass(mainCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+	// Finalize render pass and command buffer
+	vkCmdEndRenderPass(mainCommandBuffer);
 	VK_CHECK(vkEndCommandBuffer(mainCommandBuffer));
 
 	// submit image to the queue
