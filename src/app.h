@@ -7,6 +7,7 @@
 #include <vector>
 #include <deque>
 #include <functional>
+#include <unordered_map>
 
 #include <glm/glm.hpp>
 #include <glm/gtx/transform.hpp>
@@ -34,6 +35,19 @@ struct DeletionQueue
 		}
 		deletors.clear();
 	}
+};
+
+struct Material
+{
+	VkPipeline pipeline;
+	VkPipelineLayout pipelineLayout;
+};
+
+struct RenderObject
+{
+	Mesh* mesh;
+	Material* material;
+	glm::mat4 transformMatrix;
 };
 
 class App {
@@ -83,6 +97,10 @@ private:
 
 	DeletionQueue mainDeletionQueue;
 
+	// rendering
+	std::vector<RenderObject> renderables;
+	std::unordered_map<std::string, Material> materials;
+	std::unordered_map<std::string, Mesh> meshes;
 	// meshes
 	Mesh triangleMesh;
 	Mesh monkeyMesh;
@@ -107,4 +125,9 @@ private:
 	bool loadShaderModule(const char* filePath, VkShaderModule* outShaderModule);
 	void loadMeshes();
 	void uploadMesh(Mesh& mesh);
+
+	Material* createMaterial(VkPipeline pipeline, VkPipelineLayout layout, const std::string& name);
+	Material* getMaterial(const std::string& name);
+	Mesh* getMesh(const std::string& name);
+	void drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int count);
 };
