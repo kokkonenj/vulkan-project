@@ -688,3 +688,21 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 		vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(object.mesh->indices.size()), 1, 0, 0, 0);
 	}
 }
+
+AllocatedBuffer App::createBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage)
+{
+	VkBufferCreateInfo bufferInfo = {};
+	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	bufferInfo.pNext = nullptr;
+	bufferInfo.size = allocSize;
+	bufferInfo.usage = usage;
+	VmaAllocationCreateInfo vmaAllocInfo = {};
+	vmaAllocInfo.usage = memoryUsage;
+
+	AllocatedBuffer newBuffer;
+	VK_CHECK(vmaCreateBuffer(allocator, &bufferInfo, &vmaAllocInfo,
+		&newBuffer.buffer,
+		&newBuffer.allocation,
+		nullptr));
+	return newBuffer;
+}

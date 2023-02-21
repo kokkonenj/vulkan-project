@@ -135,4 +135,6 @@ private:
 	Material* getMaterial(const std::string& name);
 	Mesh* getMesh(const std::string& name);
 	void drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int count);
+
+	AllocatedBuffer createBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
 };
