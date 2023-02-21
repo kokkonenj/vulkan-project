@@ -57,6 +57,16 @@ struct FrameData
 
 	VkCommandPool commandPool;
 	VkCommandBuffer mainCommandBuffer;
+
+	AllocatedBuffer cameraBuffer;
+	VkDescriptorSet globalDescriptor;
+};
+
+struct GPUCameraData
+{
+	glm::mat4 view;
+	glm::mat4 proj;
+	glm::mat4 viewproj;
 };
 
 constexpr unsigned int FRAME_OVERLAP = 2;
@@ -137,4 +147,5 @@ private:
 	void drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int count);
 
 	AllocatedBuffer createBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
+	void initDescriptors();
 };

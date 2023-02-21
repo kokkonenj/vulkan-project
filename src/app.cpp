@@ -44,6 +44,7 @@ App::App()
 	initDefaultRenderpass();
 	initFramebuffers();
 	initSyncStructures();
+	initDescriptors();
 	initPipelines();
 	loadMeshes();
 	initScene();
@@ -705,4 +706,20 @@ AllocatedBuffer App::createBuffer(size_t allocSize, VkBufferUsageFlags usage, Vm
 		&newBuffer.allocation,
 		nullptr));
 	return newBuffer;
+}
+
+void App::initDescriptors()
+{
+	for (int i = 0; i < FRAME_OVERLAP; i++)
+	{
+		frames[i].cameraBuffer = createBuffer(sizeof(GPUCameraData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+	}
+
+	for (int i = 0; i < FRAME_OVERLAP; i++)
+	{
+		mainDeletionQueue.push_function([=]()
+			{
+				vmaDestroyBuffer(allocator, frames[i].cameraBuffer.buffer, frames[i].cameraBuffer.allocation);
+			});
+	}
 }
