@@ -141,6 +141,33 @@ void App::initSwapchain()
 		{
 			vkDestroySwapchainKHR(device, swapchain, nullptr);
 		});
+
+	// depth image stuff
+	VkExtent3D depthImageExtent = {
+		windowExtent.width,
+		windowExtent.height,
+		1
+	};
+	depthFormat = VK_FORMAT_D32_SFLOAT;
+
+	VkImageCreateInfo depthImageInfo = VkInit::imageCreateInfo(depthFormat, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, depthImageExtent);
+
+	// allocate depth image from GPU local memory
+	VmaAllocationCreateInfo depthImageAllocInfo = {};
+	depthImageAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+	depthImageAllocInfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	vmaCreateImage(allocator, &depthImageInfo, &depthImageAllocInfo, &depthImage.image, &depthImage.allocation, nullptr);
+
+	// build image-view for depth image
+	VkImageViewCreateInfo depthViewInfo = VkInit::imageviewCreateInfo(depthFormat, depthImage.image, VK_IMAGE_ASPECT_DEPTH_BIT);
+	VK_CHECK(vkCreateImageView(device, &depthViewInfo, nullptr, &depthImageView));
+
+	// cleanup
+	mainDeletionQueue.push_function([=]()
+		{
+			vkDestroyImageView(device, depthImageView, nullptr);
+			vmaDestroyImage(allocator, depthImage.image, depthImage.allocation);
+		});
 }
 
 void App::initCommands()
@@ -185,17 +212,59 @@ void App::initDefaultRenderpass()
 	colorAttatchmentReference.attachment = 0;
 	colorAttatchmentReference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
+	// depth attachment
+	VkAttachmentDescription depthAttachment = {};
+	depthAttachment.flags = 0;
+	depthAttachment.format = depthFormat;
+	depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+	VkAttachmentReference depthAttachmentReference = {};
+	depthAttachmentReference.attachment = 1;
+	depthAttachmentReference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+	// subpass
 	VkSubpassDescription subpass = {};
 	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 	subpass.colorAttachmentCount = 1;
 	subpass.pColorAttachments = &colorAttatchmentReference;
+	subpass.pDepthStencilAttachment = &depthAttachmentReference;
+
+	VkSubpassDependency dependency = {};
+	dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+	dependency.dstSubpass = 0;
+	dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependency.srcAccessMask = 0;
+	dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+	VkSubpassDependency depthDependency = {};
+	depthDependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+	depthDependency.dstSubpass = 0;
+	depthDependency.srcStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+	depthDependency.srcAccessMask = 0;
+	depthDependency.dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+	depthDependency.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+	// dependencies array
+	VkSubpassDependency dependencies[2] = { dependency, depthDependency };
+
+	// attachments array
+	VkAttachmentDescription attachments[2] = { colorAttachment, depthAttachment };
 
 	VkRenderPassCreateInfo renderPassInfo = {};
 	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	renderPassInfo.attachmentCount = 1;
-	renderPassInfo.pAttachments = &colorAttachment;
+	renderPassInfo.attachmentCount = 2;
+	renderPassInfo.pAttachments = &attachments[0];
 	renderPassInfo.subpassCount = 1;
 	renderPassInfo.pSubpasses = &subpass;
+	renderPassInfo.dependencyCount = 2;
+	renderPassInfo.pDependencies = &dependencies[0];
 
 	VK_CHECK(vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass));
 
@@ -221,7 +290,12 @@ void App::initFramebuffers()
 
 	for (unsigned int i = 0; i < swapchainImageCount; i++)
 	{
-		frameBufferInfo.pAttachments = &swapchainImageViews[i];
+		VkImageView attachments[2];
+		attachments[0] = swapchainImageViews[i];
+		attachments[1] = depthImageView;
+
+		frameBufferInfo.pAttachments = attachments;
+		frameBufferInfo.attachmentCount = 2;
 		VK_CHECK(vkCreateFramebuffer(device, &frameBufferInfo, nullptr, &frameBuffers[i]));
 
 		mainDeletionQueue.push_function([=]()
@@ -319,6 +393,9 @@ void App::initPipelines()
 	// Configure color blend attachment (no blending, RGBA)
 	pipelineBuilder.colorBlendAttachment = VkInit::colorBlendAttachmentState();
 
+	// Default depth testing
+	pipelineBuilder.depthStencil = VkInit::depthStencilCreateInfo(true, true, VK_COMPARE_OP_LESS_OR_EQUAL);
+
 	// Build the pipeline
 	pipelineBuilder.pipelineLayout = trianglePipelineLayout;
 	trianglePipeline = pipelineBuilder.buildPipeline(device, renderPass);
@@ -398,10 +475,15 @@ void App::draw()
 	cmdBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 	VK_CHECK(vkBeginCommandBuffer(mainCommandBuffer, &cmdBeginInfo));
 
-	// Color of the screen (background)
+	// Clear values
+	// color of the screen (background)
 	VkClearValue clearValue;
 	clearValue.color = { 0.0f, 0.0f, 0.0f, 1.0f };
-	
+	// depth
+	VkClearValue depthClear;
+	depthClear.depthStencil.depth = 1.f;
+	VkClearValue clearValues[] = { clearValue, depthClear };
+
 	// Starting the renderpass
 	VkRenderPassBeginInfo renderPassInfo = {};
 	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -411,8 +493,8 @@ void App::draw()
 	renderPassInfo.renderArea.offset.y = 0;
 	renderPassInfo.renderArea.extent = windowExtent;
 	renderPassInfo.framebuffer = frameBuffers[swapchainImageIndex];
-	renderPassInfo.clearValueCount = 1;
-	renderPassInfo.pClearValues = &clearValue;
+	renderPassInfo.clearValueCount = 2;
+	renderPassInfo.pClearValues = &clearValues[0];
 	vkCmdBeginRenderPass(mainCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
 	/* ----- RENDERING COMMANDS BEGIN ----- */
@@ -422,7 +504,7 @@ void App::draw()
 	vkCmdBindIndexBuffer(mainCommandBuffer, monkeyMesh.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 
 	// Model view matrix
-	glm::vec3 camPos = { 0.f, 0.f, -2.f };
+	glm::vec3 camPos = { 0.f, 0.f, -3.f };
 	glm::mat4 view = glm::translate(glm::mat4(1.f), camPos);
 	glm::mat4 proj = glm::perspective(glm::radians(70.f), 800.f / 600.f, 0.1f, 200.0f);
 	proj[1][1] *= -1.f;
@@ -559,6 +641,6 @@ void App::uploadMesh(Mesh& mesh)
 
 	void* iData;
 	vmaMapMemory(allocator, mesh.indexBuffer.allocation, &iData);
-	memcpy(iData, mesh.indices.data(), mesh.indices.size() * sizeof(uint16_t));
+	memcpy(iData, mesh.indices.data(), mesh.indices.size() * sizeof(uint32_t));
 	vmaUnmapMemory(allocator, mesh.indexBuffer.allocation);
 }

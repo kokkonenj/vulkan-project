@@ -83,8 +83,15 @@ private:
 
 	DeletionQueue mainDeletionQueue;
 
+	// meshes
 	Mesh triangleMesh;
 	Mesh monkeyMesh;
+
+	// depth resources
+	VkImageView depthImageView;
+	AllocatedImage depthImage;
+	//     format for depth image
+	VkFormat depthFormat;
 
 
 	void initVulkan();
