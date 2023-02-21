@@ -415,6 +415,9 @@ void App::initPipelines()
 
 	meshPipelineLayoutInfo.pPushConstantRanges = &pushConstant;
 	meshPipelineLayoutInfo.pushConstantRangeCount = 1;
+	// global set layout
+	meshPipelineLayoutInfo.setLayoutCount = 1;
+	meshPipelineLayoutInfo.pSetLayouts = &globalSetLayout;
 	VK_CHECK(vkCreatePipelineLayout(device, &meshPipelineLayoutInfo, nullptr, &meshPipelineLayout));
 
 	pipelineBuilder.pipelineLayout = meshPipelineLayout;
@@ -658,6 +661,16 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 	glm::mat4 projection = glm::perspective(glm::radians(70.f), 800.f / 600.f, 0.1f, 200.0f);
 	projection[1][1] *= -1;
 
+	// send camera data to uniform buffer
+	GPUCameraData camData;
+	camData.proj = projection;
+	camData.view = view;
+	camData.viewproj = projection * view;
+	void* data;
+	vmaMapMemory(allocator, getCurrentFrame().cameraBuffer.allocation, &data);
+	memcpy(data, &camData, sizeof(GPUCameraData));
+	vmaUnmapMemory(allocator, getCurrentFrame().cameraBuffer.allocation);
+
 	Mesh* lastMesh = nullptr;
 	Material* lastMaterial = nullptr;
 	for (int i = 0; i < count; i++)
@@ -668,14 +681,15 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 		{
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipeline);
 			lastMaterial = object.material;
+			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipelineLayout,
+				0, 1, &getCurrentFrame().globalDescriptor, 0, nullptr);
 		}
 
 		glm::mat4 model = object.transformMatrix;
 		model = glm::rotate(model, glm::radians(frameNumber * 0.5f), glm::vec3(0, 1, 0));
-		glm::mat4 meshMatrix = projection * view * model;
 
 		MeshPushConstants constants;
-		constants.renderMatrix = meshMatrix;
+		constants.renderMatrix = model;
 
 		vkCmdPushConstants(commandBuffer, object.material->pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &constants);
 
@@ -710,9 +724,61 @@ AllocatedBuffer App::createBuffer(size_t allocSize, VkBufferUsageFlags usage, Vm
 
 void App::initDescriptors()
 {
+	// descríptor pool for 10 uniform buffers
+	std::vector<VkDescriptorPoolSize> sizes =
+	{
+		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 10}
+	};
+	VkDescriptorPoolCreateInfo poolInfo = {};
+	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	poolInfo.pNext = nullptr;
+	poolInfo.flags = 0;
+	poolInfo.maxSets = 10;
+	poolInfo.poolSizeCount = (uint32_t)sizes.size();
+	poolInfo.pPoolSizes = sizes.data();
+	vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool);
+
+	VkDescriptorSetLayoutBinding camBufferBinding = {};
+	camBufferBinding.binding = 0;
+	camBufferBinding.descriptorCount = 1;
+	camBufferBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	camBufferBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+	VkDescriptorSetLayoutCreateInfo setInfo = {};
+	setInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	setInfo.pNext = nullptr;
+	setInfo.bindingCount = 1;
+	setInfo.flags = 0;
+	setInfo.pBindings = &camBufferBinding;
+
+	vkCreateDescriptorSetLayout(device, &setInfo, nullptr, &globalSetLayout);
+
 	for (int i = 0; i < FRAME_OVERLAP; i++)
 	{
 		frames[i].cameraBuffer = createBuffer(sizeof(GPUCameraData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+
+		VkDescriptorSetAllocateInfo allocInfo = {};
+		allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		allocInfo.pNext = nullptr;
+		allocInfo.descriptorPool = descriptorPool;
+		allocInfo.descriptorSetCount = 1;
+		allocInfo.pSetLayouts = &globalSetLayout;
+		vkAllocateDescriptorSets(device, &allocInfo, &frames[i].globalDescriptor);
+
+		VkDescriptorBufferInfo bufferInfo = {};
+		bufferInfo.buffer = frames[i].cameraBuffer.buffer;
+		bufferInfo.offset = 0;
+		bufferInfo.range = sizeof(GPUCameraData);
+
+		VkWriteDescriptorSet setWrite = {};
+		setWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		setWrite.pNext = nullptr;
+		setWrite.dstBinding = 0;
+		setWrite.dstSet = frames[i].globalDescriptor;
+		setWrite.descriptorCount = 1;
+		setWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		setWrite.pBufferInfo = &bufferInfo;
+		vkUpdateDescriptorSets(device, 1, &setWrite, 0, nullptr);
 	}
 
 	for (int i = 0; i < FRAME_OVERLAP; i++)
@@ -722,4 +788,10 @@ void App::initDescriptors()
 				vmaDestroyBuffer(allocator, frames[i].cameraBuffer.buffer, frames[i].cameraBuffer.allocation);
 			});
 	}
+
+	mainDeletionQueue.push_function([=]()
+		{
+			vkDestroyDescriptorSetLayout(device, globalSetLayout, nullptr);
+			vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+		});
 }

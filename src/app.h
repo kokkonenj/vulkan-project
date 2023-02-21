@@ -122,6 +122,8 @@ private:
 	//     format for depth image
 	VkFormat depthFormat;
 
+	VkDescriptorPool descriptorPool;
+	VkDescriptorSetLayout globalSetLayout;
 
 	void initVulkan();
 	void initSwapchain();
