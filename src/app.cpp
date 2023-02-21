@@ -690,6 +690,7 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 		}
 
 		glm::mat4 model = object.transformMatrix;
+		model = glm::rotate(model, glm::radians(frameNumber * 0.5f), glm::vec3(0, 1, 0));
 		glm::mat4 meshMatrix = projection * view * model;
 
 		MeshPushConstants constants;
