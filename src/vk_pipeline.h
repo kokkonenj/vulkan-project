@@ -14,6 +14,7 @@ public:
 	VkPipelineColorBlendAttachmentState colorBlendAttachment;
 	VkPipelineMultisampleStateCreateInfo multisampling;
 	VkPipelineLayout pipelineLayout;
+	VkPipelineDepthStencilStateCreateInfo depthStencil;
 
 	VkPipeline buildPipeline(VkDevice device, VkRenderPass pass);
 };
