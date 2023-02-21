@@ -644,3 +644,38 @@ void App::uploadMesh(Mesh& mesh)
 	memcpy(iData, mesh.indices.data(), mesh.indices.size() * sizeof(uint32_t));
 	vmaUnmapMemory(allocator, mesh.indexBuffer.allocation);
 }
+
+Material* App::createMaterial(VkPipeline pipeline, VkPipelineLayout layout, const std::string& name)
+{
+	Material material;
+	material.pipeline = pipeline;
+	material.pipelineLayout = layout;
+	materials[name] = material;
+	return &materials[name];
+}
+
+Material* App::getMaterial(const std::string& name)
+{
+	auto it = materials.find(name);
+	if (it == materials.end())
+	{
+		return nullptr;
+	}
+	else
+	{
+		return &(*it).second;
+	}
+}
+
+Mesh* App::getMesh(const std::string& name)
+{
+	auto it = meshes.find(name);
+	if (it == meshes.end())
+	{
+		return nullptr;
+	}
+	else
+	{
+		return &(*it).second;
+	}
+}
