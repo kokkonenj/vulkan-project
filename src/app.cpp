@@ -419,7 +419,7 @@ void App::draw()
 	vkCmdBindPipeline(mainCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, meshPipeline);
 	VkDeviceSize offset = 0;
 	vkCmdBindVertexBuffers(mainCommandBuffer, 0, 1, &monkeyMesh.vertexBuffer.buffer, &offset);
-	vkCmdBindIndexBuffer(mainCommandBuffer, monkeyMesh.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+	vkCmdBindIndexBuffer(mainCommandBuffer, monkeyMesh.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
 
 	// Model view matrix
 	glm::vec3 camPos = { 0.f, 0.f, -2.f };
@@ -434,8 +434,8 @@ void App::draw()
 	vkCmdPushConstants(mainCommandBuffer, meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 
 		0, sizeof(MeshPushConstants), &constants);
 
-	//vkCmdDrawIndexed(mainCommandBuffer, static_cast<uint32_t>(monkeyMesh.indices.size()), 1, 0, 0, 0);
-	vkCmdDraw(mainCommandBuffer, monkeyMesh.vertices.size(), 1, 0, 0);
+	vkCmdDrawIndexed(mainCommandBuffer, static_cast<uint32_t>(monkeyMesh.indices.size()), 1, 0, 0, 0);
+	//vkCmdDraw(mainCommandBuffer, monkeyMesh.vertices.size(), 1, 0, 0);
 	/* ----- RENDERING COMMANDS END ----- */
 
 	// Finalize render pass and command buffer
@@ -533,7 +533,7 @@ void App::uploadMesh(Mesh& mesh)
 	// Allocate index buffer
 	VkBufferCreateInfo iBufferInfo = {};
 	iBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-	iBufferInfo.size = mesh.indices.size() * sizeof(uint16_t);
+	iBufferInfo.size = mesh.indices.size() * sizeof(uint32_t);
 	iBufferInfo.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
 
 	VmaAllocationCreateInfo vmaAllocInfo = {};

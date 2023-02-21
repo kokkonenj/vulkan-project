@@ -1,6 +1,24 @@
 #include "mesh.h"
+#include "utils.h"
+
 #include <tiny_obj_loader.h>
+
+#include <glm/gtx/hash.hpp>
+
 #include <iostream>
+#include <unordered_map>
+
+
+template <>
+struct std::hash<Vertex>
+{
+	size_t operator()(const Vertex& vertex) const
+	{
+		size_t seed = 0;
+		utils::hashCombine(seed, vertex.position, vertex.color, vertex.normal);
+		return seed;
+	}
+};
 
 VertexInputDescription Vertex::getVertexDescription()
 {
@@ -59,6 +77,8 @@ bool Mesh::loadFromObj(const char* filename)
 		return false;
 	}
 
+	std::unordered_map<Vertex, uint32_t> uniqueVertices{};
+
 	// loop shapes
 	for (size_t s = 0; s < shapes.size(); s++)
 	{
@@ -84,7 +104,7 @@ bool Mesh::loadFromObj(const char* filename)
 				tinyobj::real_t nz = attrib.normals[3 * idx.normal_index + 2];
 
 				// copy into own vertex struct
-				Vertex newVertex;
+				Vertex newVertex = {};
 				newVertex.position.x = vx;
 				newVertex.position.y = vy;
 				newVertex.position.z = vz;
@@ -96,8 +116,14 @@ bool Mesh::loadFromObj(const char* filename)
 				newVertex.color = newVertex.normal;
 
 				// save into buffers
-				vertices.push_back(newVertex);
-				indices.push_back(idx.vertex_index);
+				//vertices.push_back(newVertex);
+				//indices.push_back(idx.vertex_index);
+				if (uniqueVertices.count(newVertex) == 0)
+				{
+					uniqueVertices[newVertex] = static_cast<uint32_t>(vertices.size());
+					vertices.push_back(newVertex);
+				}
+				indices.push_back(uniqueVertices[newVertex]);
 			}
 			index_offset += fv;
 		}

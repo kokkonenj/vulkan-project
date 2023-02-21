@@ -18,6 +18,11 @@ struct Vertex
 	glm::vec3 color;
 
 	static VertexInputDescription getVertexDescription();
+
+	bool operator==(const Vertex& other) const
+	{
+		return position == other.position && normal == other.normal && color == other.color;
+	}
 };
 
 struct Mesh
