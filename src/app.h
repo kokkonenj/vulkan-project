@@ -50,6 +50,17 @@ struct RenderObject
 	glm::mat4 transformMatrix;
 };
 
+struct FrameData
+{
+	VkSemaphore presentSemaphore, renderSemaphore;
+	VkFence renderFence;
+
+	VkCommandPool commandPool;
+	VkCommandBuffer mainCommandBuffer;
+};
+
+constexpr unsigned int FRAME_OVERLAP = 2;
+
 class App {
 public:
 	App();
@@ -70,6 +81,8 @@ private:
 	VkDevice device;
 	VkSurfaceKHR surface;
 
+	FrameData frames[FRAME_OVERLAP];
+
 	VkSwapchainKHR swapchain;
 	VkFormat swapchainImageFormat;
 	std::vector<VkImage> swapchainImages;
@@ -78,14 +91,8 @@ private:
 	VkQueue graphicsQueue;
 	uint32_t graphicsQueueFamily;
 
-	VkCommandPool commandPool;
-	VkCommandBuffer mainCommandBuffer;
-
 	VkRenderPass renderPass;
 	std::vector<VkFramebuffer> frameBuffers;
-
-	VkSemaphore presentSemaphore, renderSemaphore;
-	VkFence renderFence;
 
 	VmaAllocator allocator;
 
@@ -116,6 +123,9 @@ private:
 	void initScene();
 
 	void draw();
+
+	FrameData& getCurrentFrame();
+	FrameData& getLastFrame();
 
 	bool loadShaderModule(const char* filePath, VkShaderModule* outShaderModule);
 	void loadMeshes();

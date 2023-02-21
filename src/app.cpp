@@ -174,26 +174,21 @@ void App::initSwapchain()
 void App::initCommands()
 {
 	// Create command pool for commands submitted to the graphics queue
-	VkCommandPoolCreateInfo commandPoolInfo = {};
-	commandPoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-	commandPoolInfo.pNext = nullptr;
-	commandPoolInfo.queueFamilyIndex = graphicsQueueFamily;
-	commandPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-	VK_CHECK(vkCreateCommandPool(device, &commandPoolInfo, nullptr, &commandPool));
+	VkCommandPoolCreateInfo commandPoolInfo = VkInit::commandPoolCreateInfo(graphicsQueueFamily, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
 
-	// Allocate command buffer
-	VkCommandBufferAllocateInfo cmdAllocInfo = {};
-	cmdAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-	cmdAllocInfo.pNext = nullptr;
-	cmdAllocInfo.commandPool = commandPool;
-	cmdAllocInfo.commandBufferCount = 1;
-	cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-	VK_CHECK(vkAllocateCommandBuffers(device, &cmdAllocInfo, &mainCommandBuffer));
+	for (int i = 0; i < FRAME_OVERLAP; i++)
+	{
+		VK_CHECK(vkCreateCommandPool(device, &commandPoolInfo, nullptr, &frames[i].commandPool));
+		
+		// allocate default command buffer
+		VkCommandBufferAllocateInfo cmdAllocInfo = VkInit::commandBufferallocateInfo(frames[i].commandPool, 1);
+		VK_CHECK(vkAllocateCommandBuffers(device, &cmdAllocInfo, &frames[i].mainCommandBuffer));
 
-	mainDeletionQueue.push_function([=]()
-		{
-			vkDestroyCommandPool(device, commandPool, nullptr);
-		});
+		mainDeletionQueue.push_function([=]()
+			{
+				vkDestroyCommandPool(device, frames[i].commandPool, nullptr);
+			});
+	}
 }
 
 void App::initDefaultRenderpass()
@@ -310,30 +305,24 @@ void App::initFramebuffers()
 void App::initSyncStructures()
 {
 	// Create synchronization structures
-	VkFenceCreateInfo fenceCreateInfo = {};
-	fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-	fenceCreateInfo.pNext = nullptr;
-	fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-	VK_CHECK(vkCreateFence(device, &fenceCreateInfo, nullptr, &renderFence));
+	VkFenceCreateInfo fenceCreateInfo = VkInit::fenceCreateInfo(VK_FENCE_CREATE_SIGNALED_BIT);
+	VkSemaphoreCreateInfo semaphoreCreateInfo = VkInit::semaphoreCreateInfo();
 
-	mainDeletionQueue.push_function([=]()
-		{
-			vkDestroyFence(device, renderFence, nullptr);
-		});
-
-	// Create semaphores
-	VkSemaphoreCreateInfo semaphoreCreateInfo = {};
-	semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-	semaphoreCreateInfo.pNext = nullptr;
-	semaphoreCreateInfo.flags = 0;
-	VK_CHECK(vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &presentSemaphore));
-	VK_CHECK(vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &renderSemaphore));
-
-	mainDeletionQueue.push_function([=]()
-		{
-			vkDestroySemaphore(device, presentSemaphore, nullptr);
-			vkDestroySemaphore(device, renderSemaphore, nullptr);
-	});
+	for (int i = 0; i < FRAME_OVERLAP; i++)
+	{
+		VK_CHECK(vkCreateFence(device, &fenceCreateInfo, nullptr, &frames[i].renderFence));
+		mainDeletionQueue.push_function([=]()
+			{
+				vkDestroyFence(device, frames[i].renderFence, nullptr);
+			});
+		VK_CHECK(vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &frames[i].presentSemaphore));
+		VK_CHECK(vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &frames[i].renderSemaphore));
+		mainDeletionQueue.push_function([=]()
+			{
+				vkDestroySemaphore(device, frames[i].presentSemaphore, nullptr);
+				vkDestroySemaphore(device, frames[i].renderSemaphore, nullptr);
+			});
+	}
 }
 
 void App::initPipelines()
@@ -458,23 +447,22 @@ void App::draw()
 		return;
 	}
 	// Wait until GPU has finished rendering last frame
-	VK_CHECK(vkWaitForFences(device, 1, &renderFence, true, 1000000000));
-	VK_CHECK(vkResetFences(device, 1, &renderFence));
+	VK_CHECK(vkWaitForFences(device, 1, &getCurrentFrame().renderFence, true, 1000000000));
+	VK_CHECK(vkResetFences(device, 1, &getCurrentFrame().renderFence));
+
+	// Reset command buffer
+	VK_CHECK(vkResetCommandBuffer(getCurrentFrame().mainCommandBuffer, 0));
 
 	// Request image from the swapchain
 	uint32_t swapchainImageIndex;
-	VK_CHECK(vkAcquireNextImageKHR(device, swapchain, 1000000000, presentSemaphore, nullptr, &swapchainImageIndex));
+	VK_CHECK(vkAcquireNextImageKHR(device, swapchain, 1000000000, getCurrentFrame().presentSemaphore, nullptr, &swapchainImageIndex));
 
-	// Reset command buffer
-	VK_CHECK(vkResetCommandBuffer(mainCommandBuffer, 0));
+	// Get handle to current frame commandbuffer
+	VkCommandBuffer cmd = getCurrentFrame().mainCommandBuffer;
 
 	// Begin command buffer recording
-	VkCommandBufferBeginInfo cmdBeginInfo = {};
-	cmdBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-	cmdBeginInfo.pNext = nullptr;
-	cmdBeginInfo.pInheritanceInfo = nullptr;
-	cmdBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-	VK_CHECK(vkBeginCommandBuffer(mainCommandBuffer, &cmdBeginInfo));
+	VkCommandBufferBeginInfo cmdBeginInfo = VkInit::commandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+	VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 
 	// Clear values
 	// color of the screen (background)
@@ -486,54 +474,46 @@ void App::draw()
 	VkClearValue clearValues[] = { clearValue, depthClear };
 
 	// Starting the renderpass
-	VkRenderPassBeginInfo renderPassInfo = {};
-	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	renderPassInfo.pNext = nullptr;
-	renderPassInfo.renderPass = renderPass;
-	renderPassInfo.renderArea.offset.x = 0;
-	renderPassInfo.renderArea.offset.y = 0;
-	renderPassInfo.renderArea.extent = windowExtent;
-	renderPassInfo.framebuffer = frameBuffers[swapchainImageIndex];
+	VkRenderPassBeginInfo renderPassInfo = VkInit::renderpassBeginInfo(renderPass, windowExtent, frameBuffers[swapchainImageIndex]);
 	renderPassInfo.clearValueCount = 2;
 	renderPassInfo.pClearValues = &clearValues[0];
-	vkCmdBeginRenderPass(mainCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+	vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
 	/* ----- RENDERING COMMANDS BEGIN ----- */
 	
-	drawObjects(mainCommandBuffer, renderables.data(), renderables.size());
+	drawObjects(cmd, renderables.data(), renderables.size());
 
 	/* ----- RENDERING COMMANDS END ----- */
 
 	// Finalize render pass and command buffer
-	vkCmdEndRenderPass(mainCommandBuffer);
-	VK_CHECK(vkEndCommandBuffer(mainCommandBuffer));
+	vkCmdEndRenderPass(cmd);
+	VK_CHECK(vkEndCommandBuffer(cmd));
 
 	// submit image to the queue
-	VkSubmitInfo submit = {};
-	submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-	submit.pNext = nullptr;
+	VkSubmitInfo submit = VkInit::submitInfo(&cmd);
 	VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 	submit.pWaitDstStageMask = &waitStage;
 	submit.waitSemaphoreCount = 1;
-	submit.pWaitSemaphores = &presentSemaphore;
+	submit.pWaitSemaphores = &getCurrentFrame().presentSemaphore;
 	submit.signalSemaphoreCount = 1;
-	submit.pSignalSemaphores = &renderSemaphore;
-	submit.commandBufferCount = 1;
-	submit.pCommandBuffers = &mainCommandBuffer;
-	VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submit, renderFence));
+	submit.pSignalSemaphores = &getCurrentFrame().renderSemaphore;
+	VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submit, getCurrentFrame().renderFence));
 
 	// put rendered image to visible window
-	VkPresentInfoKHR presentInfo = {};
-	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-	presentInfo.pNext = nullptr;
+	VkPresentInfoKHR presentInfo = VkInit::presentInfo();
 	presentInfo.pSwapchains = &swapchain;
 	presentInfo.swapchainCount = 1;
-	presentInfo.pWaitSemaphores = &renderSemaphore;
+	presentInfo.pWaitSemaphores = &getCurrentFrame().renderSemaphore;
 	presentInfo.waitSemaphoreCount = 1;
 	presentInfo.pImageIndices = &swapchainImageIndex;
 	VK_CHECK(vkQueuePresentKHR(graphicsQueue, &presentInfo));
 
 	frameNumber++;
+}
+
+FrameData& App::getCurrentFrame()
+{
+	return frames[frameNumber % FRAME_OVERLAP];
 }
 
 bool App::loadShaderModule(const char* filePath, VkShaderModule* outShaderModule)
