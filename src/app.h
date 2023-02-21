@@ -77,13 +77,13 @@ private:
 
 	VkPipelineLayout trianglePipelineLayout;
 	VkPipeline trianglePipeline;
-	Mesh triangleMesh;
 
 	VkPipelineLayout meshPipelineLayout;
 	VkPipeline meshPipeline;
 
 	DeletionQueue mainDeletionQueue;
 
+	Mesh triangleMesh;
 	Mesh monkeyMesh;
 
 
