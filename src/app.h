@@ -84,6 +84,7 @@ private:
 
 	DeletionQueue mainDeletionQueue;
 
+	Mesh monkeyMesh;
 
 
 	void initVulkan();
