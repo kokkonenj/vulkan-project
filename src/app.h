@@ -69,6 +69,13 @@ struct GPUCameraData
 	glm::mat4 viewproj;
 };
 
+struct UploadContext
+{
+	VkFence uploadFence;
+	VkCommandPool commandPool;
+	VkCommandBuffer commandBuffer;
+};
+
 constexpr unsigned int FRAME_OVERLAP = 2;
 
 class App {
@@ -125,6 +132,8 @@ private:
 	VkDescriptorPool descriptorPool;
 	VkDescriptorSetLayout globalSetLayout;
 
+	UploadContext uploadContext;
+
 	void initVulkan();
 	void initSwapchain();
 	void initCommands();
@@ -150,4 +159,5 @@ private:
 
 	AllocatedBuffer createBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
 	void initDescriptors();
+	void immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
 };

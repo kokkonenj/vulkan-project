@@ -11,13 +11,15 @@ add_executable(vulkan-project
     vk_initializers.cpp
     mesh.h
     mesh.cpp
-    utils.h)
+    utils.h
+    vk_textures.h
+    vk_textures.cpp)
 
 
 set_property(TARGET vulkan-project PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:vulkan-project>")
 
 target_include_directories(vulkan-project PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(vulkan-project vkbootstrap vma glm tinyobjloader)
+target_link_libraries(vulkan-project vkbootstrap vma glm tinyobjloader stb_image)
 
 target_link_libraries(vulkan-project Vulkan::Vulkan sdl2)
 

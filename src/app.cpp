@@ -190,6 +190,15 @@ void App::initCommands()
 				vkDestroyCommandPool(device, frames[i].commandPool, nullptr);
 			});
 	}
+	VkCommandPoolCreateInfo uploadCommandPoolInfo = VkInit::commandPoolCreateInfo(graphicsQueueFamily);
+	VK_CHECK(vkCreateCommandPool(device, &uploadCommandPoolInfo, nullptr, &uploadContext.commandPool));
+	mainDeletionQueue.push_function([=]()
+		{
+			vkDestroyCommandPool(device, uploadContext.commandPool, nullptr);
+		});
+
+	VkCommandBufferAllocateInfo cmdAllocInfo = VkInit::commandBufferallocateInfo(uploadContext.commandPool, 1);
+	VK_CHECK(vkAllocateCommandBuffers(device, &cmdAllocInfo, &uploadContext.commandBuffer));
 }
 
 void App::initDefaultRenderpass()
@@ -324,6 +333,13 @@ void App::initSyncStructures()
 				vkDestroySemaphore(device, frames[i].renderSemaphore, nullptr);
 			});
 	}
+
+	VkFenceCreateInfo uploadFenceCreateInfo = VkInit::fenceCreateInfo();
+	VK_CHECK(vkCreateFence(device, &uploadFenceCreateInfo, nullptr, &uploadContext.uploadFence));
+	mainDeletionQueue.push_function([=]()
+		{
+			vkDestroyFence(device, uploadContext.uploadFence, nullptr);
+		});
 }
 
 void App::initPipelines()
@@ -794,4 +810,23 @@ void App::initDescriptors()
 			vkDestroyDescriptorSetLayout(device, globalSetLayout, nullptr);
 			vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 		});
+}
+
+void App::immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function)
+{
+	VkCommandBuffer cmd = uploadContext.commandBuffer;
+	// begin commandbuffer recording
+	VkCommandBufferBeginInfo cmdBeginInfo = VkInit::commandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+	VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
+	function(cmd);
+	VK_CHECK(vkEndCommandBuffer(cmd));
+	
+	// submit command buffer and execute it
+	VkSubmitInfo submit = VkInit::submitInfo(&cmd);
+	VK_CHECK(vkQueueSubmit(graphicsQueue, 1, &submit, uploadContext.uploadFence));
+	vkWaitForFences(device, 1, &uploadContext.uploadFence, true, 9999999999);
+	vkResetFences(device, 1, &uploadContext.uploadFence);
+
+	// reset the command buffers
+	vkResetCommandPool(device, uploadContext.commandPool, 0);
 }

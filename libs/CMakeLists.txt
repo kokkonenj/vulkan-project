@@ -4,6 +4,8 @@ add_library(vkbootstrap STATIC)
 add_library(glm INTERFACE)
 add_library(vma INTERFACE)
 
+add_library(stb_image INTERFACE)
+
 add_library(tinyobjloader STATIC)
 
 target_sources(vkbootstrap PRIVATE 
@@ -37,3 +39,5 @@ target_link_directories(sdl2 INTERFACE ${sdl2_DIR}/lib ${sdl2_image_DIR}/lib)
 endif()
 
 target_link_libraries(sdl2 INTERFACE SDL2 SDL2main)
+
+target_include_directories(stb_image INTERFACE stb_image)
