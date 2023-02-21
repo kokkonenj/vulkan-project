@@ -46,6 +46,7 @@ App::App()
 	initSyncStructures();
 	initPipelines();
 	loadMeshes();
+	initScene();
 
 	isInitialized = true;
 }
@@ -332,7 +333,7 @@ void App::initSyncStructures()
 		{
 			vkDestroySemaphore(device, presentSemaphore, nullptr);
 			vkDestroySemaphore(device, renderSemaphore, nullptr);
-		});
+	});
 }
 
 void App::initPipelines()
@@ -356,10 +357,6 @@ void App::initPipelines()
 	{
 		std::cout << "Triangle vertex shader successfully loaded" << std::endl;
 	}
-
-	// Create pipeline layout that controls input and output of shaders
-	VkPipelineLayoutCreateInfo pipelineLayoutInfo = VkInit::pipelineLayoutCreateInfo();
-	VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &trianglePipelineLayout));
 
 	// Create-info for vertex and fragment stages
 	PipelineBuilder pipelineBuilder;
@@ -395,10 +392,6 @@ void App::initPipelines()
 
 	// Default depth testing
 	pipelineBuilder.depthStencil = VkInit::depthStencilCreateInfo(true, true, VK_COMPARE_OP_LESS_OR_EQUAL);
-
-	// Build the pipeline
-	pipelineBuilder.pipelineLayout = trianglePipelineLayout;
-	trianglePipeline = pipelineBuilder.buildPipeline(device, renderPass);
 
 	// Build mesh pipeline
 	VertexInputDescription vertexDescription = Vertex::getVertexDescription();
@@ -436,6 +429,7 @@ void App::initPipelines()
 
 	pipelineBuilder.pipelineLayout = meshPipelineLayout;
 	meshPipeline = pipelineBuilder.buildPipeline(device, renderPass);
+	createMaterial(meshPipeline, meshPipelineLayout, "defaultMesh");
 
 	// Deletion of shader modules and pipelines
 	vkDestroyShaderModule(device, meshVertexShader, nullptr);
@@ -443,11 +437,18 @@ void App::initPipelines()
 	vkDestroyShaderModule(device, triangleVertexShader, nullptr);
 	mainDeletionQueue.push_function([=]()
 		{
-			vkDestroyPipeline(device, trianglePipeline, nullptr);
 			vkDestroyPipeline(device, meshPipeline, nullptr);
-			vkDestroyPipelineLayout(device, trianglePipelineLayout, nullptr);
 			vkDestroyPipelineLayout(device, meshPipelineLayout, nullptr);
 		});
+}
+
+void App::initScene()
+{
+	RenderObject monkey;
+	monkey.mesh = getMesh("monkey");
+	monkey.material = getMaterial("defaultMesh");
+	monkey.transformMatrix = glm::mat4{ 1.0f };
+	renderables.push_back(monkey);
 }
 
 void App::draw()
@@ -498,26 +499,9 @@ void App::draw()
 	vkCmdBeginRenderPass(mainCommandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
 	/* ----- RENDERING COMMANDS BEGIN ----- */
-	vkCmdBindPipeline(mainCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, meshPipeline);
-	VkDeviceSize offset = 0;
-	vkCmdBindVertexBuffers(mainCommandBuffer, 0, 1, &monkeyMesh.vertexBuffer.buffer, &offset);
-	vkCmdBindIndexBuffer(mainCommandBuffer, monkeyMesh.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-
-	// Model view matrix
-	glm::vec3 camPos = { 0.f, 0.f, -3.f };
-	glm::mat4 view = glm::translate(glm::mat4(1.f), camPos);
-	glm::mat4 proj = glm::perspective(glm::radians(70.f), 800.f / 600.f, 0.1f, 200.0f);
-	proj[1][1] *= -1.f;
-	glm::mat4 model = glm::rotate(glm::mat4(1.0f), glm::radians(frameNumber * 0.5f), glm::vec3(0, 1, 0));
-	glm::mat4 mvp = proj * view * model;
 	
-	MeshPushConstants constants;
-	constants.renderMatrix = mvp;
-	vkCmdPushConstants(mainCommandBuffer, meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 
-		0, sizeof(MeshPushConstants), &constants);
+	drawObjects(mainCommandBuffer, renderables.data(), renderables.size());
 
-	vkCmdDrawIndexed(mainCommandBuffer, static_cast<uint32_t>(monkeyMesh.indices.size()), 1, 0, 0, 0);
-	//vkCmdDraw(mainCommandBuffer, monkeyMesh.vertices.size(), 1, 0, 0);
 	/* ----- RENDERING COMMANDS END ----- */
 
 	// Finalize render pass and command buffer
@@ -587,6 +571,7 @@ bool App::loadShaderModule(const char* filePath, VkShaderModule* outShaderModule
 
 void App::loadMeshes()
 {
+	Mesh triangleMesh{};
 	triangleMesh.vertices.resize(3);
 
 	triangleMesh.vertices[0].position = { 0.5f, 0.5f, 0.0f };
@@ -598,10 +583,15 @@ void App::loadMeshes()
 	triangleMesh.vertices[2].color = { 1.0f, 0.0f, 0.0f };
 
 	triangleMesh.indices = { 0, 1, 2 };
+
+	Mesh monkeyMesh{};
 	monkeyMesh.loadFromObj("../../assets/monkey_smooth.obj");
 
 	uploadMesh(triangleMesh);
 	uploadMesh(monkeyMesh);
+	
+	meshes["monkey"] = monkeyMesh;
+	meshes["triangle"] = triangleMesh;
 }
 
 void App::uploadMesh(Mesh& mesh)
@@ -677,5 +667,43 @@ Mesh* App::getMesh(const std::string& name)
 	else
 	{
 		return &(*it).second;
+	}
+}
+
+void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int count)
+{
+	glm::vec3 camPos = { 0.f, 0.f, -3.f };
+	glm::mat4 view = glm::translate(glm::mat4(1.f), camPos);
+	glm::mat4 projection = glm::perspective(glm::radians(70.f), 800.f / 600.f, 0.1f, 200.0f);
+	projection[1][1] *= -1;
+
+	Mesh* lastMesh = nullptr;
+	Material* lastMaterial = nullptr;
+	for (int i = 0; i < count; i++)
+	{
+		RenderObject& object = first[i];
+
+		if (object.material != lastMaterial)
+		{
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipeline);
+			lastMaterial = object.material;
+		}
+
+		glm::mat4 model = object.transformMatrix;
+		glm::mat4 meshMatrix = projection * view * model;
+
+		MeshPushConstants constants;
+		constants.renderMatrix = meshMatrix;
+
+		vkCmdPushConstants(commandBuffer, object.material->pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &constants);
+
+		if (object.mesh != lastMesh)
+		{
+			VkDeviceSize offset = 0;
+			vkCmdBindVertexBuffers(commandBuffer, 0, 1, &object.mesh->vertexBuffer.buffer, &offset);
+			vkCmdBindIndexBuffer(commandBuffer, object.mesh->indexBuffer.buffer, offset, VK_INDEX_TYPE_UINT32);
+			lastMesh = object.mesh;
+		}
+		vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(object.mesh->indices.size()), 1, 0, 0, 0);
 	}
 }

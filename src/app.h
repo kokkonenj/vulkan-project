@@ -89,9 +89,6 @@ private:
 
 	VmaAllocator allocator;
 
-	VkPipelineLayout trianglePipelineLayout;
-	VkPipeline trianglePipeline;
-
 	VkPipelineLayout meshPipelineLayout;
 	VkPipeline meshPipeline;
 
@@ -101,9 +98,6 @@ private:
 	std::vector<RenderObject> renderables;
 	std::unordered_map<std::string, Material> materials;
 	std::unordered_map<std::string, Mesh> meshes;
-	// meshes
-	Mesh triangleMesh;
-	Mesh monkeyMesh;
 
 	// depth resources
 	VkImageView depthImageView;
@@ -119,6 +113,7 @@ private:
 	void initFramebuffers();
 	void initSyncStructures();
 	void initPipelines();
+	void initScene();
 
 	void draw();
 
