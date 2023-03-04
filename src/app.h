@@ -132,6 +132,8 @@ private:
 	VkDescriptorPool descriptorPool;
 	VkDescriptorSetLayout globalSetLayout;
 
+	VkPhysicalDeviceProperties gpuProperties;
+
 	UploadContext uploadContext;
 
 	void initVulkan();

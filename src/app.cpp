@@ -122,6 +122,9 @@ void App::initVulkan()
 	allocatorInfo.device = device;
 	allocatorInfo.instance = instance;
 	vmaCreateAllocator(&allocatorInfo, &allocator);
+
+	gpuProperties = vkbDevice.physical_device.properties;
+	std::cout << "GPU has minimum buffer alignment of: " << gpuProperties.limits.minUniformBufferOffsetAlignment << std::endl;
 }
 
 void App::initSwapchain()
