@@ -6,7 +6,6 @@ VkCommandPoolCreateInfo VkInit::commandPoolCreateInfo(uint32_t queueFamilyIndex,
 	info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 	info.pNext = nullptr;
 	info.flags = flags;
-
 	return info;
 }
 
@@ -18,7 +17,6 @@ VkCommandBufferAllocateInfo VkInit::commandBufferallocateInfo(VkCommandPool pool
 	info.commandPool = pool;
 	info.commandBufferCount = count;
 	info.level = level;
-
 	return info;
 }
 
@@ -29,7 +27,6 @@ VkCommandBufferBeginInfo VkInit::commandBufferBeginInfo(VkCommandBufferUsageFlag
 	info.pNext = nullptr;
 	info.pInheritanceInfo = nullptr;
 	info.flags = flags;
-
 	return info;
 }
 
@@ -43,7 +40,6 @@ VkFramebufferCreateInfo VkInit::framebufferCreateInfo(VkRenderPass renderPass, V
 	info.width = extent.width;
 	info.height = extent.height;
 	info.layers = 1;
-
 	return info;
 }
 
@@ -53,7 +49,6 @@ VkFenceCreateInfo VkInit::fenceCreateInfo(VkFenceCreateFlags flags)
 	info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 	info.pNext = nullptr;
 	info.flags = flags;
-
 	return info;
 }
 
@@ -63,7 +58,6 @@ VkSemaphoreCreateInfo VkInit::semaphoreCreateInfo(VkSemaphoreCreateFlags flags)
 	info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 	info.pNext = nullptr;
 	info.flags = flags;
-
 	return info;
 }
 
@@ -79,7 +73,6 @@ VkSubmitInfo VkInit::submitInfo(VkCommandBuffer* cmd)
 	info.pCommandBuffers = cmd;
 	info.signalSemaphoreCount = 0;
 	info.pSignalSemaphores = nullptr;
-
 	return info;
 }
 
@@ -93,7 +86,6 @@ VkPresentInfoKHR VkInit::presentInfo()
 	info.pWaitSemaphores = nullptr;
 	info.waitSemaphoreCount = 0;
 	info.pImageIndices = nullptr;
-
 	return info;
 }
 
@@ -109,7 +101,6 @@ VkRenderPassBeginInfo VkInit::renderpassBeginInfo(VkRenderPass renderPass, VkExt
 	info.clearValueCount = 1;
 	info.pClearValues = nullptr;
 	info.framebuffer = framebuffer;
-
 	return info;
 }
 
@@ -215,7 +206,6 @@ VkImageCreateInfo VkInit::imageCreateInfo(VkFormat format, VkImageUsageFlags usa
 	info.samples = VK_SAMPLE_COUNT_1_BIT;
 	info.tiling = VK_IMAGE_TILING_OPTIMAL;
 	info.usage = usageFlags;
-	
 	return info;
 }
 
@@ -232,7 +222,6 @@ VkImageViewCreateInfo VkInit::imageviewCreateInfo(VkFormat format, VkImage image
 	info.subresourceRange.baseArrayLayer = 0;
 	info.subresourceRange.layerCount = 1;
 	info.subresourceRange.aspectMask = aspectFlags;
-
 	return info;
 }
 
@@ -248,6 +237,29 @@ VkPipelineDepthStencilStateCreateInfo VkInit::depthStencilCreateInfo(bool bDepth
 	info.minDepthBounds = 0.0f;
 	info.maxDepthBounds = 1.0f;
 	info.stencilTestEnable = VK_FALSE;
-
 	return info;
+}
+
+VkDescriptorSetLayoutBinding VkInit::descriptorSetLayoutBinding(VkDescriptorType type, VkShaderStageFlags stageFlags, uint32_t binding)
+{
+	VkDescriptorSetLayoutBinding setBinding = {};
+	setBinding.binding = binding;
+	setBinding.descriptorCount = 1;
+	setBinding.descriptorType = type;
+	setBinding.pImmutableSamplers = nullptr;
+	setBinding.stageFlags = stageFlags;
+	return setBinding;
+}
+
+VkWriteDescriptorSet VkInit::writeDescriptorBuffer(VkDescriptorType type, VkDescriptorSet dstSet, VkDescriptorBufferInfo* bufferInfo, uint32_t binding)
+{
+	VkWriteDescriptorSet write = {};
+	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	write.pNext = nullptr;
+	write.dstBinding = binding;
+	write.dstSet = dstSet;
+	write.descriptorCount = 1;
+	write.descriptorType = type;
+	write.pBufferInfo = bufferInfo;
+	return write;
 }
