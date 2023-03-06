@@ -2,9 +2,9 @@
 #include <SDL.h>
 #include <SDL_vulkan.h>
 #include <VkBootstrap.h>
-
 #include <iostream>
 #include <fstream>
+#include "vk_textures.h"
 
 #define VMA_IMPLEMENTATION
 #include "vk_mem_alloc.h"
@@ -46,6 +46,7 @@ App::App()
 	initSyncStructures();
 	initDescriptors();
 	initPipelines();
+	loadImages();
 	loadMeshes();
 	initScene();
 
@@ -444,6 +445,7 @@ void App::initPipelines()
 	meshPipelineLayoutInfo.pSetLayouts = setLayouts;
 	VK_CHECK(vkCreatePipelineLayout(device, &meshPipelineLayoutInfo, nullptr, &meshPipelineLayout));
 
+	// build default mesh pipeline
 	pipelineBuilder.pipelineLayout = meshPipelineLayout;
 	meshPipeline = pipelineBuilder.buildPipeline(device, renderPass);
 	createMaterial(meshPipeline, meshPipelineLayout, "defaultMesh");
@@ -600,6 +602,20 @@ void App::loadMeshes()
 	
 	meshes["monkey"] = monkeyMesh;
 	meshes["triangle"] = triangleMesh;
+}
+
+void App::loadImages()
+{
+	Texture lostEmpire;
+	utils::loadImageFromFile(this, "../../assets/lost_empire-RGBA.png", lostEmpire.image);
+	
+	VkImageViewCreateInfo imageInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R8G8B8A8_SRGB, lostEmpire.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
+	vkCreateImageView(device, &imageInfo, nullptr, &lostEmpire.imageView);
+	loadedTextures["empire_diffuse"] = lostEmpire;
+	mainDeletionQueue.push_function([=]()
+		{
+			vkDestroyImageView(device, lostEmpire.imageView, nullptr);
+		});
 }
 
 void App::uploadMesh(Mesh& mesh)

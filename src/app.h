@@ -37,6 +37,12 @@ struct DeletionQueue
 	}
 };
 
+struct Texture
+{
+	AllocatedImage image;
+	VkImageView imageView;
+};
+
 struct Material
 {
 	VkPipeline pipeline;
@@ -102,6 +108,10 @@ public:
 	App& operator= (const App&) = delete; // delete copy assignment operator
 	~App();
 	void run();
+	AllocatedBuffer createBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
+	void immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
+	VmaAllocator allocator;
+	DeletionQueue mainDeletionQueue;
 private:
 	bool isInitialized = false;
 	int frameNumber = 0;
@@ -128,12 +138,8 @@ private:
 	VkRenderPass renderPass;
 	std::vector<VkFramebuffer> frameBuffers;
 
-	VmaAllocator allocator;
-
 	VkPipelineLayout meshPipelineLayout;
 	VkPipeline meshPipeline;
-
-	DeletionQueue mainDeletionQueue;
 
 	// rendering
 	std::vector<RenderObject> renderables;
@@ -141,6 +147,7 @@ private:
 	std::unordered_map<std::string, Mesh> meshes;
 	GPUSceneData sceneParameters;
 	AllocatedBuffer sceneParameterBuffer;
+	std::unordered_map<std::string, Texture> loadedTextures;
 
 	// depth resources
 	VkImageView depthImageView;
@@ -168,10 +175,10 @@ private:
 	void draw();
 
 	FrameData& getCurrentFrame();
-	FrameData& getLastFrame();
 
 	bool loadShaderModule(const char* filePath, VkShaderModule* outShaderModule);
 	void loadMeshes();
+	void loadImages();
 	void uploadMesh(Mesh& mesh);
 
 	Material* createMaterial(VkPipeline pipeline, VkPipelineLayout layout, const std::string& name);
@@ -179,8 +186,6 @@ private:
 	Mesh* getMesh(const std::string& name);
 	void drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int count);
 
-	AllocatedBuffer createBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
 	void initDescriptors();
-	void immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
 	size_t padUniformBufferSize(size_t originalSize);
 };
