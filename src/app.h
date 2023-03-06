@@ -60,6 +60,9 @@ struct FrameData
 
 	AllocatedBuffer cameraBuffer;
 	VkDescriptorSet globalDescriptor;
+
+	AllocatedBuffer objectBuffer;
+	VkDescriptorSet objectDescriptor;
 };
 
 struct GPUCameraData
@@ -76,6 +79,11 @@ struct GPUSceneData
 	glm::vec4 ambientColor;
 	glm::vec4 sunlightDirection;
 	glm::vec4 sunlightColor;
+};
+
+struct GPUObjectData
+{
+	glm::mat4 modelMatrix;
 };
 
 struct UploadContext
@@ -142,6 +150,7 @@ private:
 
 	VkDescriptorPool descriptorPool;
 	VkDescriptorSetLayout globalSetLayout;
+	VkDescriptorSetLayout objectSetLayout;
 
 	VkPhysicalDeviceProperties gpuProperties;
 
