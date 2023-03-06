@@ -69,6 +69,15 @@ struct GPUCameraData
 	glm::mat4 viewproj;
 };
 
+struct GPUSceneData
+{
+	glm::vec4 fogColor;
+	glm::vec4 fogDistances;
+	glm::vec4 ambientColor;
+	glm::vec4 sunlightDirection;
+	glm::vec4 sunlightColor;
+};
+
 struct UploadContext
 {
 	VkFence uploadFence;
@@ -122,6 +131,8 @@ private:
 	std::vector<RenderObject> renderables;
 	std::unordered_map<std::string, Material> materials;
 	std::unordered_map<std::string, Mesh> meshes;
+	GPUSceneData sceneParameters;
+	AllocatedBuffer sceneParameterBuffer;
 
 	// depth resources
 	VkImageView depthImageView;
@@ -162,4 +173,5 @@ private:
 	AllocatedBuffer createBuffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
 	void initDescriptors();
 	void immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
+	size_t padUniformBufferSize(size_t originalSize);
 };
