@@ -68,22 +68,31 @@ VertexInputDescription Vertex::getVertexDescription()
 
 bool Mesh::loadFromObj(const char* filename)
 {
+	tinyobj::ObjReaderConfig readerConfig;
+	readerConfig.mtl_search_path = "../../assets/";
+	tinyobj::ObjReader reader;
+
 	tinyobj::attrib_t attrib;
 	std::vector<tinyobj::shape_t> shapes;
 	std::vector<tinyobj::material_t> materials;
-	std::string warn;
-	std::string err;
 
-	tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, filename, nullptr);
-	if (!warn.empty())
+	if (!reader.ParseFromFile(filename, readerConfig))
 	{
-		std::cout << "WARNING: " << warn << std::endl;
+		if (!reader.Error().empty())
+		{
+			std::cout << "ERROR: " << reader.Error();
+			return false;
+		}
 	}
-	if (!err.empty())
+
+	if (!reader.Warning().empty())
 	{
-		std::cerr << err << std::endl;
-		return false;
+		std::cout << "WARNING: " << reader.Warning();
 	}
+
+	attrib = reader.GetAttrib();
+	shapes = reader.GetShapes();
+	materials = reader.GetMaterials();
 
 	std::unordered_map<Vertex, uint32_t> uniqueVertices{};
 
