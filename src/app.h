@@ -80,8 +80,8 @@ struct GPUCameraData
 
 struct GPUSceneData
 {
-	glm::vec4 fogColor;
-	glm::vec4 fogDistances;
+	glm::vec4 lightPosition;
+	glm::vec4 lightColor;
 	glm::vec4 ambientColor;
 	glm::vec4 sunlightDirection;
 	glm::vec4 sunlightColor;

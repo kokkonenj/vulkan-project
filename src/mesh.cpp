@@ -137,7 +137,7 @@ bool Mesh::loadFromObj(const char* filename)
 				newVertex.uv.y = 1-uy;
 
 				// set color as normal color for now
-				newVertex.color = newVertex.normal;
+				newVertex.color = glm::vec3(0.2f, 0.0f, 0.0f);
 
 				// save into buffers
 				//vertices.push_back(newVertex);

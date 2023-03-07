@@ -521,11 +521,20 @@ void App::initPipelines()
 
 void App::initScene()
 {
+	/*
 	RenderObject monkey;
 	monkey.mesh = getMesh("monkey");
 	monkey.material = getMaterial("defaultMesh");
 	monkey.transformMatrix = glm::mat4{ 1.0f };
 	renderables.push_back(monkey);
+	*/
+	RenderObject teapot;
+	teapot.mesh = getMesh("teapot");
+	teapot.material = getMaterial("defaultMesh");
+	teapot.transformMatrix = glm::mat4{ 1.0f };
+	teapot.transformMatrix = glm::scale(teapot.transformMatrix, glm::vec3(0.5f));
+	teapot.transformMatrix = glm::translate(teapot.transformMatrix, glm::vec3(0.f, -2.f, 0.f));
+	renderables.push_back(teapot);
 }
 
 void App::draw()
@@ -652,10 +661,16 @@ void App::loadMeshes()
 
 	triangleMesh.indices = { 0, 1, 2 };
 
+	/*
 	Mesh monkeyMesh{};
 	monkeyMesh.loadFromObj("../../assets/monkey_smooth.obj");
 	uploadMesh(monkeyMesh);
 	meshes["monkey"] = monkeyMesh;
+	*/
+	Mesh teapot{};
+	teapot.loadFromObj("../../assets/uv_teapot.obj");
+	uploadMesh(teapot);
+	meshes["teapot"] = teapot;
 }
 
 void App::loadImages()
@@ -813,8 +828,10 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 	vmaUnmapMemory(allocator, getCurrentFrame().cameraBuffer.allocation);
 
 	// allocating scene parameters
-	float d = (frameNumber / 120.f);
+	float d = (frameNumber / 144.f);
 	sceneParameters.ambientColor = { 0.f, 0.f , 0.f, 1.f };
+	sceneParameters.lightPosition = { 3*cos(d), 0.f, 3*sin(d), 1.f };
+	sceneParameters.lightColor = { 0.5f, 0.5f, 0.5f, 1.f };
 	char* sceneData;
 	vmaMapMemory(allocator, sceneParameterBuffer.allocation, (void**)&sceneData);
 	int frameIndex = frameNumber % FRAME_OVERLAP;
@@ -831,7 +848,7 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 		RenderObject& object = first[i];
 		objectSSBO[i].modelMatrix = object.transformMatrix;
 		// rotate
-		objectSSBO[i].modelMatrix = glm::rotate(objectSSBO[i].modelMatrix, glm::radians(frameNumber * 0.25f), glm::vec3(0, 1, 0));
+		//objectSSBO[i].modelMatrix = glm::rotate(objectSSBO[i].modelMatrix, glm::radians(frameNumber * 0.25f), glm::vec3(0, 1, 0));
 	}
 	vmaUnmapMemory(allocator, getCurrentFrame().objectBuffer.allocation);
 
