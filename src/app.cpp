@@ -130,6 +130,14 @@ void App::initVulkan()
 
 	gpuProperties = vkbDevice.physical_device.properties;
 	std::cout << "GPU has minimum buffer alignment of: " << gpuProperties.limits.minUniformBufferOffsetAlignment << std::endl;
+	VkSampleCountFlags counts = gpuProperties.limits.framebufferColorSampleCounts & gpuProperties.limits.framebufferDepthSampleCounts;
+	if (counts & VK_SAMPLE_COUNT_64_BIT) { msaaSamples = VK_SAMPLE_COUNT_64_BIT; }
+	else if (counts & VK_SAMPLE_COUNT_32_BIT) { msaaSamples = VK_SAMPLE_COUNT_32_BIT; }
+	else if (counts & VK_SAMPLE_COUNT_16_BIT) { msaaSamples = VK_SAMPLE_COUNT_16_BIT; }
+	else if (counts & VK_SAMPLE_COUNT_8_BIT) { msaaSamples = VK_SAMPLE_COUNT_8_BIT; }
+	else if (counts & VK_SAMPLE_COUNT_4_BIT) { msaaSamples = VK_SAMPLE_COUNT_4_BIT; }
+	else if (counts & VK_SAMPLE_COUNT_2_BIT) { msaaSamples = VK_SAMPLE_COUNT_2_BIT; }
+	else { msaaSamples = VK_SAMPLE_COUNT_1_BIT; }
 }
 
 void App::initSwapchain()
@@ -160,7 +168,7 @@ void App::initSwapchain()
 	};
 	depthFormat = VK_FORMAT_D32_SFLOAT;
 
-	VkImageCreateInfo depthImageInfo = VkInit::imageCreateInfo(depthFormat, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, depthImageExtent);
+	VkImageCreateInfo depthImageInfo = VkInit::imageCreateInfo(depthFormat, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, depthImageExtent, msaaSamples);
 
 	// allocate depth image from GPU local memory
 	VmaAllocationCreateInfo depthImageAllocInfo = {};
@@ -172,9 +180,21 @@ void App::initSwapchain()
 	VkImageViewCreateInfo depthViewInfo = VkInit::imageviewCreateInfo(depthFormat, depthImage.image, VK_IMAGE_ASPECT_DEPTH_BIT);
 	VK_CHECK(vkCreateImageView(device, &depthViewInfo, nullptr, &depthImageView));
 
+	// colors for MSAA
+	VkExtent3D colorImageExtent = { windowExtent.width, windowExtent.height, 1 };
+	VkImageCreateInfo colorImageInfo = VkInit::imageCreateInfo(swapchainImageFormat, VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, colorImageExtent, msaaSamples);
+	VmaAllocationCreateInfo colorImageAllocInfo = {};
+	colorImageAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+	colorImageAllocInfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	vmaCreateImage(allocator, &colorImageInfo, &colorImageAllocInfo, &colorImage.image, &colorImage.allocation, nullptr);
+	VkImageViewCreateInfo colorViewInfo = VkInit::imageviewCreateInfo(swapchainImageFormat, colorImage.image, VK_IMAGE_ASPECT_COLOR_BIT);
+	VK_CHECK(vkCreateImageView(device, &colorViewInfo, nullptr, &colorImageView));
+
 	// cleanup
 	mainDeletionQueue.push_function([=]()
 		{
+			vkDestroyImageView(device, colorImageView, nullptr);
+			vmaDestroyImage(allocator, colorImage.image, colorImage.allocation);
 			vkDestroyImageView(device, depthImageView, nullptr);
 			vmaDestroyImage(allocator, depthImage.image, depthImage.allocation);
 		});
@@ -214,13 +234,13 @@ void App::initDefaultRenderpass()
 	// Defining color attachment for the renderpass
 	VkAttachmentDescription colorAttachment = {};
 	colorAttachment.format = swapchainImageFormat;
-	colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	colorAttachment.samples = msaaSamples;
 	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
 	VkAttachmentReference colorAttatchmentReference = {};
 	colorAttatchmentReference.attachment = 0;
@@ -230,7 +250,7 @@ void App::initDefaultRenderpass()
 	VkAttachmentDescription depthAttachment = {};
 	depthAttachment.flags = 0;
 	depthAttachment.format = depthFormat;
-	depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+	depthAttachment.samples = msaaSamples;
 	depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 	depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
@@ -242,12 +262,28 @@ void App::initDefaultRenderpass()
 	depthAttachmentReference.attachment = 1;
 	depthAttachmentReference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
+	// color attachment resolve for MSAA
+	VkAttachmentDescription colorAttachmentResolve = {};
+	colorAttachmentResolve.format = swapchainImageFormat;
+	colorAttachmentResolve.samples = VK_SAMPLE_COUNT_1_BIT;
+	colorAttachmentResolve.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	colorAttachmentResolve.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	colorAttachmentResolve.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	colorAttachmentResolve.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	colorAttachmentResolve.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	colorAttachmentResolve.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+	VkAttachmentReference colorATtachmentResolveReference = {};
+	colorATtachmentResolveReference.attachment = 2;
+	colorATtachmentResolveReference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
 	// subpass
 	VkSubpassDescription subpass = {};
 	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 	subpass.colorAttachmentCount = 1;
 	subpass.pColorAttachments = &colorAttatchmentReference;
 	subpass.pDepthStencilAttachment = &depthAttachmentReference;
+	subpass.pResolveAttachments = &colorATtachmentResolveReference;
 
 	VkSubpassDependency dependency = {};
 	dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
@@ -269,11 +305,11 @@ void App::initDefaultRenderpass()
 	VkSubpassDependency dependencies[2] = { dependency, depthDependency };
 
 	// attachments array
-	VkAttachmentDescription attachments[2] = { colorAttachment, depthAttachment };
+	VkAttachmentDescription attachments[3] = { colorAttachment, depthAttachment, colorAttachmentResolve };
 
 	VkRenderPassCreateInfo renderPassInfo = {};
 	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	renderPassInfo.attachmentCount = 2;
+	renderPassInfo.attachmentCount = 3;
 	renderPassInfo.pAttachments = &attachments[0];
 	renderPassInfo.subpassCount = 1;
 	renderPassInfo.pSubpasses = &subpass;
@@ -304,12 +340,10 @@ void App::initFramebuffers()
 
 	for (unsigned int i = 0; i < swapchainImageCount; i++)
 	{
-		VkImageView attachments[2];
-		attachments[0] = swapchainImageViews[i];
-		attachments[1] = depthImageView;
+		VkImageView attachments[3] = { colorImageView, depthImageView, swapchainImageViews[i] };
 
 		frameBufferInfo.pAttachments = attachments;
-		frameBufferInfo.attachmentCount = 2;
+		frameBufferInfo.attachmentCount = 3;
 		VK_CHECK(vkCreateFramebuffer(device, &frameBufferInfo, nullptr, &frameBuffers[i]));
 
 		mainDeletionQueue.push_function([=]()
@@ -372,6 +406,16 @@ void App::initPipelines()
 		std::cout << "Triangle vertex shader successfully loaded" << std::endl;
 	}
 
+	VkShaderModule texturedMeshShader;
+	if (!loadShaderModule("../../shaders/textured_lit.frag.spv", &texturedMeshShader))
+	{
+		std::cout << "Error loading textured fragment shader module" << std::endl;
+	}
+	else
+	{
+		std::cout << "Textured fragment shader successfully loaded" << std::endl;
+	}
+
 	// Create-info for vertex and fragment stages
 	PipelineBuilder pipelineBuilder;
 	pipelineBuilder.shaderStages.push_back(
@@ -399,7 +443,7 @@ void App::initPipelines()
 	pipelineBuilder.rasterizer = VkInit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
 
 	// Configure multisampling
-	pipelineBuilder.multisampling = VkInit::multisamplingStateCreateInfo();
+	pipelineBuilder.multisampling = VkInit::multisamplingStateCreateInfo(msaaSamples);
 
 	// Configure color blend attachment (no blending, RGBA)
 	pipelineBuilder.colorBlendAttachment = VkInit::colorBlendAttachmentState();
@@ -450,12 +494,25 @@ void App::initPipelines()
 	meshPipeline = pipelineBuilder.buildPipeline(device, renderPass);
 	createMaterial(meshPipeline, meshPipelineLayout, "defaultMesh");
 
+	// build textured pipeline
+	/*
+	pipelineBuilder.shaderStages.clear();
+	pipelineBuilder.shaderStages.push_back(VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_VERTEX_BIT, meshVertexShader));
+	pipelineBuilder.shaderStages.push_back(VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_FRAGMENT_BIT, texturedMeshShader));
+	VkPipeline texturedPipeline = pipelineBuilder.buildPipeline(device, renderPass);
+	VkPipelineLayout texturedPipelineLayout = meshPipelineLayout;
+	createMaterial(texturedPipeline, texturedPipelineLayout, "texturedmesh");
+	*/
+
 	// Deletion of shader modules and pipelines
 	vkDestroyShaderModule(device, meshVertexShader, nullptr);
 	vkDestroyShaderModule(device, triangleFragmentShader, nullptr);
 	vkDestroyShaderModule(device, triangleVertexShader, nullptr);
+	vkDestroyShaderModule(device, texturedMeshShader, nullptr);
 	mainDeletionQueue.push_function([=]()
 		{
+			//vkDestroyPipeline(device, texturedPipeline, nullptr);
+			//vkDestroyPipelineLayout(device, texturedPipelineLayout, nullptr);
 			vkDestroyPipeline(device, meshPipeline, nullptr);
 			vkDestroyPipelineLayout(device, meshPipelineLayout, nullptr);
 		});
@@ -596,12 +653,8 @@ void App::loadMeshes()
 
 	Mesh monkeyMesh{};
 	monkeyMesh.loadFromObj("../../assets/monkey_smooth.obj");
-
-	uploadMesh(triangleMesh);
 	uploadMesh(monkeyMesh);
-	
 	meshes["monkey"] = monkeyMesh;
-	meshes["triangle"] = triangleMesh;
 }
 
 void App::loadImages()
@@ -777,7 +830,7 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 		RenderObject& object = first[i];
 		objectSSBO[i].modelMatrix = object.transformMatrix;
 		// rotate
-		objectSSBO[i].modelMatrix = glm::rotate(objectSSBO[i].modelMatrix, glm::radians(frameNumber * 0.5f), glm::vec3(0, 1, 0));
+		objectSSBO[i].modelMatrix = glm::rotate(objectSSBO[i].modelMatrix, glm::radians(frameNumber * 0.25f), glm::vec3(0, 1, 0));
 	}
 	vmaUnmapMemory(allocator, getCurrentFrame().objectBuffer.allocation);
 
@@ -889,7 +942,7 @@ void App::initDescriptors()
 	{
 		frames[i].cameraBuffer = createBuffer(sizeof(GPUCameraData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 		
-		const int MAX_OBJECTS = 100000;
+		const int MAX_OBJECTS = 10000;
 		frames[i].objectBuffer = createBuffer(sizeof(GPUObjectData) * MAX_OBJECTS, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
 		// alloc one descritpor set for each frame

@@ -1,8 +1,9 @@
 #include "mesh.h"
 #include "utils.h"
 
+#define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
-
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/hash.hpp>
 
 #include <iostream>
@@ -15,7 +16,7 @@ struct std::hash<Vertex>
 	size_t operator()(const Vertex& vertex) const
 	{
 		size_t seed = 0;
-		utils::hashCombine(seed, vertex.position, vertex.color, vertex.normal);
+		utils::hashCombine(seed, vertex.position, vertex.color, vertex.normal, vertex.uv);
 		return seed;
 	}
 };

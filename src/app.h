@@ -112,6 +112,7 @@ public:
 	void immediateSubmit(std::function<void(VkCommandBuffer cmd)>&& function);
 	VmaAllocator allocator;
 	DeletionQueue mainDeletionQueue;
+	VkSampleCountFlagBits msaaSamples = VK_SAMPLE_COUNT_1_BIT;
 private:
 	bool isInitialized = false;
 	int frameNumber = 0;
@@ -154,6 +155,10 @@ private:
 	AllocatedImage depthImage;
 	//     format for depth image
 	VkFormat depthFormat;
+
+	// MSAA variables
+	AllocatedImage colorImage;
+	VkImageView colorImageView;
 
 	VkDescriptorPool descriptorPool;
 	VkDescriptorSetLayout globalSetLayout;
