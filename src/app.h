@@ -45,6 +45,7 @@ struct Texture
 
 struct Material
 {
+	VkDescriptorSet textureSet{ VK_NULL_HANDLE };
 	VkPipeline pipeline;
 	VkPipelineLayout pipelineLayout;
 };
@@ -163,6 +164,7 @@ private:
 	VkDescriptorPool descriptorPool;
 	VkDescriptorSetLayout globalSetLayout;
 	VkDescriptorSetLayout objectSetLayout;
+	VkDescriptorSetLayout singleTextureSetLayout;
 
 	VkPhysicalDeviceProperties gpuProperties;
 

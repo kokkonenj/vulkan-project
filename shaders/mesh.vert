@@ -37,7 +37,7 @@ void main()
 {
 	mat4 modelMatrix = objectBuffer.objects[gl_BaseInstance].model;
 	mat4 transformMatrix = (cameraData.viewproj * modelMatrix);
-	gl_Position = transformMatrix * vec4(aPos, 1.0f);
+	gl_Position = transformMatrix * vec4(aPos, 1.0);
 	vec4 vertPos4 = modelMatrix * vec4(aPos, 1.0);
 	outColor = aColor;
 	texCoord = aTexCoord;

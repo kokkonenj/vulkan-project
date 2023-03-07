@@ -387,50 +387,65 @@ void App::initSyncStructures()
 
 void App::initPipelines()
 {
-	VkShaderModule triangleFragmentShader;
-	if (!loadShaderModule("../../shaders/triangle.frag.spv", &triangleFragmentShader))
+	VkShaderModule colorMeshShader;
+	if (!loadShaderModule("../../shaders/triangle.frag.spv", &colorMeshShader))
 	{
-		std::cout << "Error loading triangle fragment shader module" << std::endl;
-	}
-	else
-	{
-		std::cout << "Triangle fragment shader successfully loaded" << std::endl;
-	}
-
-	VkShaderModule triangleVertexShader;
-	if (!loadShaderModule("../../shaders/triangle.vert.spv", &triangleVertexShader))
-	{
-		std::cout << "Error loading triangle vertex shader module" << std::endl;
-	}
-	else
-	{
-		std::cout << "Triangle vertex shader successfully loaded" << std::endl;
+		std::cout << "Error when loading the colored mesh shader" << std::endl;
 	}
 
 	VkShaderModule texturedMeshShader;
 	if (!loadShaderModule("../../shaders/textured_lit.frag.spv", &texturedMeshShader))
 	{
-		std::cout << "Error loading textured fragment shader module" << std::endl;
+		std::cout << "Error when loading the colored mesh shader" << std::endl;
 	}
-	else
+
+	VkShaderModule meshVertShader;
+	if (!loadShaderModule("../../shaders/mesh.vert.spv", &meshVertShader))
 	{
-		std::cout << "Textured fragment shader successfully loaded" << std::endl;
+		std::cout << "Error when loading the mesh vertex shader module" << std::endl;
 	}
 
-	// Create-info for vertex and fragment stages
 	PipelineBuilder pipelineBuilder;
+
 	pipelineBuilder.shaderStages.push_back(
-		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_VERTEX_BIT, triangleVertexShader));
+		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_VERTEX_BIT, meshVertShader));
+
 	pipelineBuilder.shaderStages.push_back(
-		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_FRAGMENT_BIT, triangleFragmentShader));
-	
-	// Input info controls how to read vertices from buffers
+		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_FRAGMENT_BIT, colorMeshShader));
+
+
+	// default empty pipeline layout info
+	VkPipelineLayoutCreateInfo meshPipelineLayoutInfo = VkInit::pipelineLayoutCreateInfo();
+
+	// push constants
+	VkPushConstantRange pushConstants;
+	pushConstants.offset = 0;
+	pushConstants.size = sizeof(MeshPushConstants);
+	pushConstants.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+	meshPipelineLayoutInfo.pPushConstantRanges = &pushConstants;
+	meshPipelineLayoutInfo.pushConstantRangeCount = 1;
+
+	VkDescriptorSetLayout setLayouts[] = { globalSetLayout, objectSetLayout };
+
+	meshPipelineLayoutInfo.setLayoutCount = 2;
+	meshPipelineLayoutInfo.pSetLayouts = setLayouts;
+
+	VkPipelineLayout meshPipLayout;
+	VK_CHECK(vkCreatePipelineLayout(device, &meshPipelineLayoutInfo, nullptr, &meshPipLayout));
+
+	// start from the normal mesh layout
+	VkPipelineLayoutCreateInfo texturedPipelineLayoutInfo = meshPipelineLayoutInfo;
+	VkDescriptorSetLayout texturedSetLayouts[] = { globalSetLayout, objectSetLayout, singleTextureSetLayout };
+	texturedPipelineLayoutInfo.setLayoutCount = 3;
+	texturedPipelineLayoutInfo.pSetLayouts = texturedSetLayouts;
+
+	VkPipelineLayout texturedPipelineLayout;
+	VK_CHECK(vkCreatePipelineLayout(device, &texturedPipelineLayoutInfo, nullptr, &texturedPipelineLayout));
+
+	pipelineBuilder.pipelineLayout = meshPipLayout;
 	pipelineBuilder.vertexInputInfo = VkInit::vertexInputStateCreateInfo();
-
-	// Input assembly controls how to draw (triangle list, lines or points)
 	pipelineBuilder.inputAssembly = VkInit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-
-	// Viewport and scissor from swapchain extents
 	pipelineBuilder.viewport.x = 0.0f;
 	pipelineBuilder.viewport.y = 0.0f;
 	pipelineBuilder.viewport.width = (float)windowExtent.width;
@@ -439,102 +454,84 @@ void App::initPipelines()
 	pipelineBuilder.viewport.maxDepth = 1.0f;
 	pipelineBuilder.scissor.offset = { 0, 0 };
 	pipelineBuilder.scissor.extent = windowExtent;
-
-	// Configure rasterizer
 	pipelineBuilder.rasterizer = VkInit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
-
-	// Configure multisampling
 	pipelineBuilder.multisampling = VkInit::multisamplingStateCreateInfo(msaaSamples);
-
-	// Configure color blend attachment (no blending, RGBA)
 	pipelineBuilder.colorBlendAttachment = VkInit::colorBlendAttachmentState();
 
-	// Default depth testing
 	pipelineBuilder.depthStencil = VkInit::depthStencilCreateInfo(true, true, VK_COMPARE_OP_LESS_OR_EQUAL);
 
-	// Build mesh pipeline
+	// build the mesh pipeline
 	VertexInputDescription vertexDescription = Vertex::getVertexDescription();
 	pipelineBuilder.vertexInputInfo.pVertexAttributeDescriptions = vertexDescription.attributes.data();
 	pipelineBuilder.vertexInputInfo.vertexAttributeDescriptionCount = vertexDescription.attributes.size();
 	pipelineBuilder.vertexInputInfo.pVertexBindingDescriptions = vertexDescription.bindings.data();
 	pipelineBuilder.vertexInputInfo.vertexBindingDescriptionCount = vertexDescription.bindings.size();
+
+	//build the mesh triangle pipeline
+	VkPipeline meshPipeline = pipelineBuilder.buildPipeline(device, renderPass);
+	createMaterial(meshPipeline, meshPipLayout, "defaultmesh");
+
 	pipelineBuilder.shaderStages.clear();
-
-	VkShaderModule meshVertexShader;
-	if (!loadShaderModule("../../shaders/mesh.vert.spv", &meshVertexShader))
-	{
-		std::cout << "Error loading mesh vertex shader module" << std::endl;
-	}
-	else
-	{
-		std::cout << "Mesh vertex shader successfully loaded" << std::endl;
-	}
-
 	pipelineBuilder.shaderStages.push_back(
-		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_VERTEX_BIT, meshVertexShader));
+		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_VERTEX_BIT, meshVertShader));
 	pipelineBuilder.shaderStages.push_back(
-		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_FRAGMENT_BIT, triangleFragmentShader));
-
-	// Mesh pipeline layout definition
-	VkPipelineLayoutCreateInfo meshPipelineLayoutInfo = VkInit::pipelineLayoutCreateInfo();
-	VkPushConstantRange pushConstant;
-	pushConstant.offset = 0;
-	pushConstant.size = sizeof(MeshPushConstants);
-	pushConstant.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-
-	meshPipelineLayoutInfo.pPushConstantRanges = &pushConstant;
-	meshPipelineLayoutInfo.pushConstantRangeCount = 1;
-	// global & object set layout
-	VkDescriptorSetLayout setLayouts[] = { globalSetLayout, objectSetLayout };
-	meshPipelineLayoutInfo.setLayoutCount = 2;
-	meshPipelineLayoutInfo.pSetLayouts = setLayouts;
-	VK_CHECK(vkCreatePipelineLayout(device, &meshPipelineLayoutInfo, nullptr, &meshPipelineLayout));
-
-	// build default mesh pipeline
-	pipelineBuilder.pipelineLayout = meshPipelineLayout;
-	meshPipeline = pipelineBuilder.buildPipeline(device, renderPass);
-	createMaterial(meshPipeline, meshPipelineLayout, "defaultMesh");
-
-	// build textured pipeline
-	/*
-	pipelineBuilder.shaderStages.clear();
-	pipelineBuilder.shaderStages.push_back(VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_VERTEX_BIT, meshVertexShader));
-	pipelineBuilder.shaderStages.push_back(VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_FRAGMENT_BIT, texturedMeshShader));
-	VkPipeline texturedPipeline = pipelineBuilder.buildPipeline(device, renderPass);
-	VkPipelineLayout texturedPipelineLayout = meshPipelineLayout;
-	createMaterial(texturedPipeline, texturedPipelineLayout, "texturedmesh");
-	*/
+		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_FRAGMENT_BIT, texturedMeshShader));
+	pipelineBuilder.pipelineLayout = texturedPipelineLayout;
+	VkPipeline texPipeline = pipelineBuilder.buildPipeline(device, renderPass);
+	createMaterial(texPipeline, texturedPipelineLayout, "texturedmesh");
 
 	// Deletion of shader modules and pipelines
-	vkDestroyShaderModule(device, meshVertexShader, nullptr);
-	vkDestroyShaderModule(device, triangleFragmentShader, nullptr);
-	vkDestroyShaderModule(device, triangleVertexShader, nullptr);
+	vkDestroyShaderModule(device, meshVertShader, nullptr);
+	vkDestroyShaderModule(device, colorMeshShader, nullptr);
 	vkDestroyShaderModule(device, texturedMeshShader, nullptr);
-	mainDeletionQueue.push_function([=]()
-		{
-			//vkDestroyPipeline(device, texturedPipeline, nullptr);
-			//vkDestroyPipelineLayout(device, texturedPipelineLayout, nullptr);
-			vkDestroyPipeline(device, meshPipeline, nullptr);
-			vkDestroyPipelineLayout(device, meshPipelineLayout, nullptr);
+
+	mainDeletionQueue.push_function([=]() {
+		vkDestroyPipeline(device, meshPipeline, nullptr);
+		vkDestroyPipeline(device, texPipeline, nullptr);
+
+		vkDestroyPipelineLayout(device, meshPipLayout, nullptr);
+		vkDestroyPipelineLayout(device, texturedPipelineLayout, nullptr);
 		});
 }
 
 void App::initScene()
 {
-	/*
-	RenderObject monkey;
-	monkey.mesh = getMesh("monkey");
-	monkey.material = getMaterial("defaultMesh");
-	monkey.transformMatrix = glm::mat4{ 1.0f };
-	renderables.push_back(monkey);
-	*/
 	RenderObject teapot;
 	teapot.mesh = getMesh("teapot");
-	teapot.material = getMaterial("defaultMesh");
+	teapot.material = getMaterial("texturedmesh");
 	teapot.transformMatrix = glm::mat4{ 1.0f };
 	teapot.transformMatrix = glm::scale(teapot.transformMatrix, glm::vec3(0.5f));
 	teapot.transformMatrix = glm::translate(teapot.transformMatrix, glm::vec3(0.f, -2.f, 0.f));
 	renderables.push_back(teapot);
+
+	Material* texturedMat = getMaterial("texturedmesh");
+	
+	// allocate descriptor set for texture
+	VkDescriptorSetAllocateInfo allocInfo = {};
+	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocInfo.pNext = nullptr;
+	allocInfo.descriptorPool = descriptorPool;
+	allocInfo.descriptorSetCount = 1;
+	allocInfo.pSetLayouts = &singleTextureSetLayout;
+	vkAllocateDescriptorSets(device, &allocInfo, &texturedMat->textureSet);
+
+	// create sample for texture
+	VkSamplerCreateInfo samplerInfo = VkInit::samplerCreateInfo(VK_FILTER_NEAREST);
+	VkSampler blockySampler;
+	vkCreateSampler(device, &samplerInfo, nullptr, &blockySampler);
+
+	// write descriptorset for texture
+	VkDescriptorImageInfo imageBufferInfo = {};
+	imageBufferInfo.sampler = blockySampler;
+	imageBufferInfo.imageView = loadedTextures["cobble_diffuse"].imageView;
+	imageBufferInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	VkWriteDescriptorSet texture1 = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, texturedMat->textureSet, &imageBufferInfo, 0);
+	vkUpdateDescriptorSets(device, 1, &texture1, 0, nullptr);
+
+	mainDeletionQueue.push_function([=]()
+		{
+			vkDestroySampler(device, blockySampler, nullptr);
+		});
 }
 
 void App::draw()
@@ -648,25 +645,6 @@ bool App::loadShaderModule(const char* filePath, VkShaderModule* outShaderModule
 
 void App::loadMeshes()
 {
-	Mesh triangleMesh{};
-	triangleMesh.vertices.resize(3);
-
-	triangleMesh.vertices[0].position = { 0.5f, 0.5f, 0.0f };
-	triangleMesh.vertices[1].position = { -0.5f, 0.5f, 0.0f };
-	triangleMesh.vertices[2].position = { 0.0f, -0.5f, 0.0f };
-
-	triangleMesh.vertices[0].color = { 0.0f, 0.0f, 1.0f };
-	triangleMesh.vertices[1].color = { 0.0f, 1.0f, 0.0f };
-	triangleMesh.vertices[2].color = { 1.0f, 0.0f, 0.0f };
-
-	triangleMesh.indices = { 0, 1, 2 };
-
-	/*
-	Mesh monkeyMesh{};
-	monkeyMesh.loadFromObj("../../assets/monkey_smooth.obj");
-	uploadMesh(monkeyMesh);
-	meshes["monkey"] = monkeyMesh;
-	*/
 	Mesh teapot{};
 	teapot.loadFromObj("../../assets/uv_teapot.obj");
 	uploadMesh(teapot);
@@ -675,15 +653,15 @@ void App::loadMeshes()
 
 void App::loadImages()
 {
-	Texture lostEmpire;
-	utils::loadImageFromFile(this, "../../assets/lost_empire-RGBA.png", lostEmpire.image);
+	Texture cobble;
+	utils::loadImageFromFile(this, "../../assets/graphic.jpg", cobble.image);
 	
-	VkImageViewCreateInfo imageInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R8G8B8A8_SRGB, lostEmpire.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
-	vkCreateImageView(device, &imageInfo, nullptr, &lostEmpire.imageView);
-	loadedTextures["empire_diffuse"] = lostEmpire;
+	VkImageViewCreateInfo imageInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R8G8B8A8_SRGB, cobble.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
+	vkCreateImageView(device, &imageInfo, nullptr, &cobble.imageView);
+	loadedTextures["cobble_diffuse"] = cobble;
 	mainDeletionQueue.push_function([=]()
 		{
-			vkDestroyImageView(device, lostEmpire.imageView, nullptr);
+			vkDestroyImageView(device, cobble.imageView, nullptr);
 		});
 }
 
@@ -831,7 +809,7 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 	float d = (frameNumber / 144.f);
 	sceneParameters.ambientColor = { 0.f, 0.f , 0.f, 1.f };
 	sceneParameters.lightPosition = { 3*cos(d), 0.f, 3*sin(d), 1.f };
-	sceneParameters.lightColor = { 0.5f, 0.5f, 0.5f, 1.f };
+	sceneParameters.lightColor = { 1.f, 0.f, 0.f, 1.f };
 	char* sceneData;
 	vmaMapMemory(allocator, sceneParameterBuffer.allocation, (void**)&sceneData);
 	int frameIndex = frameNumber % FRAME_OVERLAP;
@@ -848,7 +826,7 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 		RenderObject& object = first[i];
 		objectSSBO[i].modelMatrix = object.transformMatrix;
 		// rotate
-		//objectSSBO[i].modelMatrix = glm::rotate(objectSSBO[i].modelMatrix, glm::radians(frameNumber * 0.25f), glm::vec3(0, 1, 0));
+		objectSSBO[i].modelMatrix = glm::rotate(objectSSBO[i].modelMatrix, glm::radians(frameNumber * 0.25f), glm::vec3(0, 1, 0));
 	}
 	vmaUnmapMemory(allocator, getCurrentFrame().objectBuffer.allocation);
 
@@ -869,6 +847,11 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 			// object data descriptor
 			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipelineLayout,
 				1, 1, &getCurrentFrame().objectDescriptor, 0, nullptr);
+			if (object.material->textureSet != VK_NULL_HANDLE)
+			{
+				vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipelineLayout,
+					2, 1, &object.material->textureSet, 0, nullptr);
+			}
 		}
 
 		glm::mat4 model = object.transformMatrix;
@@ -915,7 +898,8 @@ void App::initDescriptors()
 	{
 		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 10},
 		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 10},
-		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 10}
+		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 10},
+		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 10}
 	};
 
 	// descriptor pool creation
@@ -952,6 +936,16 @@ void App::initDescriptors()
 	set2info.flags = 0;
 	set2info.pBindings = &objectBinding;
 	vkCreateDescriptorSetLayout(device, &set2info, nullptr, &objectSetLayout);
+
+	// texture binding
+	VkDescriptorSetLayoutBinding textureBinding = VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+	VkDescriptorSetLayoutCreateInfo set3info = {};
+	set3info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	set3info.pNext = nullptr;
+	set3info.bindingCount = 1;
+	set3info.flags = 0;
+	set3info.pBindings = &textureBinding;
+	vkCreateDescriptorSetLayout(device, &set3info, nullptr, &singleTextureSetLayout);
 
 	const size_t sceneParameterBufferSize = FRAME_OVERLAP * padUniformBufferSize(sizeof(GPUSceneData));
 	sceneParameterBuffer = createBuffer(sceneParameterBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
@@ -1015,6 +1009,7 @@ void App::initDescriptors()
 			vmaDestroyBuffer(allocator, sceneParameterBuffer.buffer, sceneParameterBuffer.allocation);
 			vkDestroyDescriptorSetLayout(device, objectSetLayout, nullptr);
 			vkDestroyDescriptorSetLayout(device, globalSetLayout, nullptr);
+			vkDestroyDescriptorSetLayout(device, singleTextureSetLayout, nullptr);
 			vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 
 			for (int i = 0; i < FRAME_OVERLAP; i++)
