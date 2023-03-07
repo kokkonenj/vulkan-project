@@ -29,7 +29,7 @@ bool utils::loadImageFromFile(App* app, const char* file, AllocatedImage& outIma
 	imageExtent.width = static_cast<uint32_t>(texWidth);
 	imageExtent.height = static_cast<uint32_t>(texHeight);
 	imageExtent.depth = 1;
-	VkImageCreateInfo dImgInfo = VkInit::imageCreateInfo(imageFormat, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, imageExtent, app->msaaSamples);
+	VkImageCreateInfo dImgInfo = VkInit::imageCreateInfo(imageFormat, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, imageExtent, VK_SAMPLE_COUNT_1_BIT);
 	AllocatedImage newImage;
 	VmaAllocationCreateInfo dImgAllocInfo = {};
 	dImgAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;

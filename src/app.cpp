@@ -138,6 +138,7 @@ void App::initVulkan()
 	else if (counts & VK_SAMPLE_COUNT_4_BIT) { msaaSamples = VK_SAMPLE_COUNT_4_BIT; }
 	else if (counts & VK_SAMPLE_COUNT_2_BIT) { msaaSamples = VK_SAMPLE_COUNT_2_BIT; }
 	else { msaaSamples = VK_SAMPLE_COUNT_1_BIT; }
+	std::cout << "Rendering with " << msaaSamples << "x MSAA" << std::endl;
 }
 
 void App::initSwapchain()
@@ -813,7 +814,7 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 
 	// allocating scene parameters
 	float d = (frameNumber / 120.f);
-	sceneParameters.ambientColor = { sin(d), 0 , cos(d), 1 };
+	sceneParameters.ambientColor = { 0.f, 0.f , 0.f, 1.f };
 	char* sceneData;
 	vmaMapMemory(allocator, sceneParameterBuffer.allocation, (void**)&sceneData);
 	int frameIndex = frameNumber % FRAME_OVERLAP;
