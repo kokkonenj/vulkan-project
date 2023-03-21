@@ -119,7 +119,7 @@ private:
 	int frameNumber = 0;
 
 	struct SDL_Window* window = nullptr;
-	VkExtent2D windowExtent = {800, 600};
+	VkExtent2D windowExtent = {1280, 720};
 
 	VkInstance instance;
 	VkDebugUtilsMessengerEXT debugMessenger;

@@ -43,9 +43,10 @@ void main()
 		float specAngle = max(dot(halfDir, normal), 0.0);
 		specular = pow(specAngle, shininess);
 	}
-	vec3 color = texture(tex1, texCoord).xyz;
-	vec3 colorLinear = color + sceneData.ambientColor.xyz + diffuseColor * lambertian * sceneData.lightColor.xyz * lightPower / distance + specularColor * specular * sceneData.lightColor.xyz * lightPower / distance;
-	vec3 gammaCorrected = pow(colorLinear, vec3(1.0/gamma));
+	vec3 color = pow(texture(tex1, texCoord).xyz, vec3(2.2));
+	color = color + sceneData.ambientColor.xyz + diffuseColor * lambertian * sceneData.lightColor.xyz * lightPower / distance + specularColor * specular * sceneData.lightColor.xyz * lightPower / distance;
+	color = color / (color + vec3(1.0));
+	color = pow(color, vec3(1.0/gamma));
 	
-	outColor = vec4(gammaCorrected, 1.0);
+	outColor = vec4(color, 1.0);
 }

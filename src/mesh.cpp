@@ -8,7 +8,7 @@
 
 #include <iostream>
 #include <unordered_map>
-
+#include <chrono>
 
 template <>
 struct std::hash<Vertex>
@@ -69,6 +69,7 @@ VertexInputDescription Vertex::getVertexDescription()
 
 bool Mesh::loadFromObj(const char* filename)
 {
+	auto start = std::chrono::system_clock::now();
 	tinyobj::ObjReaderConfig readerConfig;
 	readerConfig.mtl_search_path = "../../assets/";
 	tinyobj::ObjReader reader;
@@ -96,7 +97,6 @@ bool Mesh::loadFromObj(const char* filename)
 	materials = reader.GetMaterials();
 
 	std::unordered_map<Vertex, uint32_t> uniqueVertices{};
-
 	// loop shapes
 	for (size_t s = 0; s < shapes.size(); s++)
 	{
@@ -140,17 +140,17 @@ bool Mesh::loadFromObj(const char* filename)
 				newVertex.color = glm::vec3(0.2f, 0.0f, 0.0f);
 
 				// save into buffers
-				//vertices.push_back(newVertex);
-				//indices.push_back(idx.vertex_index);
-				if (uniqueVertices.count(newVertex) == 0)
-				{
-					uniqueVertices[newVertex] = static_cast<uint32_t>(vertices.size());
+				auto res = uniqueVertices.insert({newVertex, static_cast<uint32_t>(vertices.size())});
+				if (res.second) {
 					vertices.push_back(newVertex);
 				}
-				indices.push_back(uniqueVertices[newVertex]);
+				indices.push_back(res.first->second);
 			}
 			index_offset += fv;
 		}
 	}
+	
+	auto end = std::chrono::system_clock::now();
+	std::cout << "Loaded model at " << filename << " in " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms" << std::endl;
 	return true;
 }

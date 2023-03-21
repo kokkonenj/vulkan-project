@@ -496,13 +496,13 @@ void App::initPipelines()
 
 void App::initScene()
 {
-	RenderObject teapot;
-	teapot.mesh = getMesh("teapot");
-	teapot.material = getMaterial("texturedmesh");
-	teapot.transformMatrix = glm::mat4{ 1.0f };
-	teapot.transformMatrix = glm::scale(teapot.transformMatrix, glm::vec3(0.5f));
-	teapot.transformMatrix = glm::translate(teapot.transformMatrix, glm::vec3(0.f, -2.f, 0.f));
-	renderables.push_back(teapot);
+	RenderObject room;
+	room.mesh = getMesh("room");
+	room.material = getMaterial("texturedmesh");
+	room.transformMatrix = glm::mat4{ 1.0f };
+	room.transformMatrix = glm::rotate(room.transformMatrix, glm::radians(-90.f), glm::vec3(1.f, 0.f, 0.f));
+	room.transformMatrix = glm::rotate(room.transformMatrix, glm::radians(235.f), glm::vec3(0.f, 0.f, 1.f));
+	renderables.push_back(room);
 
 	Material* texturedMat = getMaterial("texturedmesh");
 	
@@ -523,7 +523,7 @@ void App::initScene()
 	// write descriptorset for texture
 	VkDescriptorImageInfo imageBufferInfo = {};
 	imageBufferInfo.sampler = blockySampler;
-	imageBufferInfo.imageView = loadedTextures["cobble_diffuse"].imageView;
+	imageBufferInfo.imageView = loadedTextures["room_diffuse"].imageView;
 	imageBufferInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	VkWriteDescriptorSet texture1 = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, texturedMat->textureSet, &imageBufferInfo, 0);
 	vkUpdateDescriptorSets(device, 1, &texture1, 0, nullptr);
@@ -645,23 +645,23 @@ bool App::loadShaderModule(const char* filePath, VkShaderModule* outShaderModule
 
 void App::loadMeshes()
 {
-	Mesh teapot{};
-	teapot.loadFromObj("../../assets/uv_teapot.obj");
-	uploadMesh(teapot);
-	meshes["teapot"] = teapot;
+	Mesh room{};
+	room.loadFromObj("../../assets/viking_room.obj");
+	uploadMesh(room);
+	meshes["room"] = room;
 }
 
 void App::loadImages()
 {
-	Texture cobble;
-	utils::loadImageFromFile(this, "../../assets/graphic.jpg", cobble.image);
+	Texture room;
+	utils::loadImageFromFile(this, "../../assets/viking_room.png", room.image);
 	
-	VkImageViewCreateInfo imageInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R8G8B8A8_SRGB, cobble.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
-	vkCreateImageView(device, &imageInfo, nullptr, &cobble.imageView);
-	loadedTextures["cobble_diffuse"] = cobble;
+	VkImageViewCreateInfo imageInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R8G8B8A8_SRGB, room.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
+	vkCreateImageView(device, &imageInfo, nullptr, &room.imageView);
+	loadedTextures["room_diffuse"] = room;
 	mainDeletionQueue.push_function([=]()
 		{
-			vkDestroyImageView(device, cobble.imageView, nullptr);
+			vkDestroyImageView(device, room.imageView, nullptr);
 		});
 }
 
@@ -792,7 +792,7 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 {
 	glm::vec3 camPos = { 0.f, 0.f, -3.f };
 	glm::mat4 view = glm::translate(glm::mat4(1.f), camPos);
-	glm::mat4 projection = glm::perspective(glm::radians(70.f), 800.f / 600.f, 0.1f, 200.0f);
+	glm::mat4 projection = glm::perspective(glm::radians(70.f), (float) windowExtent.width / windowExtent.height, 0.1f, 200.0f);
 	projection[1][1] *= -1;
 
 	// send camera data to uniform buffer
@@ -826,7 +826,7 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 		RenderObject& object = first[i];
 		objectSSBO[i].modelMatrix = object.transformMatrix;
 		// rotate
-		objectSSBO[i].modelMatrix = glm::rotate(objectSSBO[i].modelMatrix, glm::radians(frameNumber * 0.25f), glm::vec3(0, 1, 0));
+		//objectSSBO[i].modelMatrix = glm::rotate(objectSSBO[i].modelMatrix, glm::radians(frameNumber * 0.25f), glm::vec3(0, 1, 0));
 	}
 	vmaUnmapMemory(allocator, getCurrentFrame().objectBuffer.allocation);
 
