@@ -50,6 +50,14 @@ struct Material
 	VkPipelineLayout pipelineLayout;
 };
 
+struct PBRMaterial
+{
+	Texture albedo;
+	Texture metallic;
+	Texture roughness;
+	Texture normal;
+};
+
 struct RenderObject
 {
 	Mesh* mesh;
@@ -150,6 +158,7 @@ private:
 	GPUSceneData sceneParameters;
 	AllocatedBuffer sceneParameterBuffer;
 	std::unordered_map<std::string, Texture> loadedTextures;
+	std::unordered_map<std::string, PBRMaterial> loadedPBRMaterials;
 
 	// depth resources
 	VkImageView depthImageView;
@@ -165,6 +174,7 @@ private:
 	VkDescriptorSetLayout globalSetLayout;
 	VkDescriptorSetLayout objectSetLayout;
 	VkDescriptorSetLayout singleTextureSetLayout;
+	VkDescriptorSetLayout PBRSetLayout;
 
 	VkPhysicalDeviceProperties gpuProperties;
 

@@ -79,8 +79,8 @@ bool utils::loadImageFromFile(App* app, const char* file, AllocatedImage& outIma
 	app->mainDeletionQueue.push_function([=]()
 		{
 			vmaDestroyImage(app->allocator, newImage.image, newImage.allocation);
+			vmaDestroyBuffer(app->allocator, stagingBuffer.buffer, stagingBuffer.allocation);
 		});
-	vmaDestroyBuffer(app->allocator, stagingBuffer.buffer, stagingBuffer.allocation);
 	std::cout << "Texture loaded successfully: " << file << std::endl;
 	outImage = newImage;
 	return true;
