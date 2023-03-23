@@ -564,17 +564,29 @@ void App::initScene()
 	// pbr stuff
 	allocInfo.pSetLayouts = &PBRSetLayout;
 	vkAllocateDescriptorSets(device, &allocInfo, &pbrMat->textureSet);
-	imageBufferInfo.imageView = loadedPBRMaterials["rustedIron"].albedo.imageView;
-	VkWriteDescriptorSet albedo = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, pbrMat->textureSet, &imageBufferInfo, 0);
+	VkDescriptorImageInfo albedoImageInfo = {};
+	albedoImageInfo.sampler = linearSampler;
+	albedoImageInfo.imageView = loadedPBRMaterials["rustedIron"].albedo.imageView;
+	albedoImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	VkWriteDescriptorSet albedo = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, pbrMat->textureSet, &albedoImageInfo, 0);
 
-	imageBufferInfo.imageView = loadedPBRMaterials["rustedIron"].metallic.imageView;
-	VkWriteDescriptorSet metallic = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, pbrMat->textureSet, &imageBufferInfo, 1);
+	VkDescriptorImageInfo metallicImageInfo = {};
+	metallicImageInfo.sampler = linearSampler;
+	metallicImageInfo.imageView = loadedPBRMaterials["rustedIron"].metallic.imageView;
+	metallicImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	VkWriteDescriptorSet metallic = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, pbrMat->textureSet, &metallicImageInfo, 1);
 
-	imageBufferInfo.imageView = loadedPBRMaterials["rustedIron"].roughness.imageView;
-	VkWriteDescriptorSet roughness = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, pbrMat->textureSet, &imageBufferInfo, 2);
+	VkDescriptorImageInfo roughnessImageInfo = {};
+	roughnessImageInfo.sampler = linearSampler;
+	roughnessImageInfo.imageView = loadedPBRMaterials["rustedIron"].roughness.imageView;
+	roughnessImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	VkWriteDescriptorSet roughness = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, pbrMat->textureSet, &roughnessImageInfo, 2);
 
-	imageBufferInfo.imageView = loadedPBRMaterials["rustedIron"].normal.imageView;
-	VkWriteDescriptorSet normal = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, pbrMat->textureSet, &imageBufferInfo, 3);
+	VkDescriptorImageInfo normalImageInfo = {};
+	normalImageInfo.sampler = linearSampler;
+	normalImageInfo.imageView = loadedPBRMaterials["rustedIron"].normal.imageView;
+	normalImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	VkWriteDescriptorSet normal = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, pbrMat->textureSet, &normalImageInfo, 3);
 
 	VkWriteDescriptorSet setWrites[] = { albedo, metallic, roughness, normal };
 	vkUpdateDescriptorSets(device, 4, setWrites, 0, nullptr);
