@@ -929,7 +929,7 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 		RenderObject& object = first[i];
 		objectSSBO[i].modelMatrix = object.transformMatrix;
 		// rotate
-		objectSSBO[i].modelMatrix = glm::rotate(objectSSBO[i].modelMatrix, glm::radians(frameNumber * 0.25f), glm::vec3(0, 1, 0));
+		objectSSBO[i].modelMatrix = glm::rotate(objectSSBO[i].modelMatrix, glm::radians(frameNumber * 0.10f), glm::vec3(0, 1, 0));
 	}
 	vmaUnmapMemory(allocator, getCurrentFrame().objectBuffer.allocation);
 
