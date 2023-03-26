@@ -15,9 +15,8 @@ struct std::hash<Vertex>
 {
 	size_t operator()(const Vertex& vertex) const
 	{
-		size_t seed = 0;
-		utils::hashCombine(seed, vertex.position, vertex.color, vertex.normal, vertex.uv);
-		return seed;
+		return (((hash<glm::vec3>()(vertex.position) ^ (hash<glm::vec3>()(vertex.color) << 1)) >> 1) ^ (hash<glm::vec2>()(vertex.uv) << 1) ^
+                (hash<glm::vec3>()(vertex.normal) << 1));
 	}
 };
 
@@ -152,5 +151,6 @@ bool Mesh::loadFromObj(const char* filename)
 	
 	auto end = std::chrono::system_clock::now();
 	std::cout << "Loaded model at " << filename << " in " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms" << std::endl;
+	std::cout << "Vertex count: " << vertices.size() << "\n" << "Unique vertex count: " << uniqueVertices.size() << "\n" << "Index count: " << indices.size() << std::endl;
 	return true;
 }
