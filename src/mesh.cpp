@@ -151,6 +151,6 @@ bool Mesh::loadFromObj(const char* filename)
 	
 	auto end = std::chrono::system_clock::now();
 	std::cout << "Loaded model at " << filename << " in " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms" << std::endl;
-	std::cout << "Vertex count: " << vertices.size() << "\n" << "Unique vertex count: " << uniqueVertices.size() << "\n" << "Index count: " << indices.size() << std::endl;
+	std::cout << "Vertex count: " << vertices.size() << "\n" << "Index count: " << indices.size() << std::endl;
 	return true;
 }
