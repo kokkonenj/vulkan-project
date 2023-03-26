@@ -588,8 +588,14 @@ void App::initScene()
 	normalImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	VkWriteDescriptorSet normal = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, pbrMat->textureSet, &normalImageInfo, 3);
 
-	VkWriteDescriptorSet setWrites[] = { albedo, metallic, roughness, normal };
-	vkUpdateDescriptorSets(device, 4, setWrites, 0, nullptr);
+	VkDescriptorImageInfo aoImageInfo = {};
+	aoImageInfo.sampler = linearSampler;
+	aoImageInfo.imageView = loadedPBRMaterials["rustedIron"].ao.imageView;
+	aoImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	VkWriteDescriptorSet ao = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, pbrMat->textureSet, &aoImageInfo, 4);
+
+	VkWriteDescriptorSet setWrites[] = { albedo, metallic, roughness, normal, ao };
+	vkUpdateDescriptorSets(device, 5, setWrites, 0, nullptr);
 
 	mainDeletionQueue.push_function([=]()
 		{
@@ -745,6 +751,10 @@ void App::loadImages()
 	imageInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R8G8B8A8_SRGB, rustedIron.normal.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
 	vkCreateImageView(device, &imageInfo, nullptr, &rustedIron.normal.imageView);
 
+	utils::loadImageFromFile(this, "../../assets/rustediron2_ao.png", rustedIron.ao.image);
+	imageInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R8G8B8A8_SRGB, rustedIron.ao.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
+	vkCreateImageView(device, &imageInfo, nullptr, &rustedIron.ao.imageView);
+
 	loadedPBRMaterials["rustedIron"] = rustedIron;
 
 	mainDeletionQueue.push_function([=]()
@@ -754,6 +764,7 @@ void App::loadImages()
 			vkDestroyImageView(device, rustedIron.metallic.imageView, nullptr);
 			vkDestroyImageView(device, rustedIron.roughness.imageView, nullptr);
 			vkDestroyImageView(device, rustedIron.normal.imageView, nullptr);
+			vkDestroyImageView(device, rustedIron.ao.imageView, nullptr);
 		});
 }
 
@@ -899,9 +910,9 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 
 	// allocating scene parameters
 	float d = (frameNumber / 144.f);
-	sceneParameters.ambientColor = { 0.f, 0.f , 0.f, 1.f };
-	sceneParameters.lightPosition = { 3*cos(d), 0.f, 3*sin(d), 1.f };
-	sceneParameters.lightColor = { 1.f, 0.f, 0.f, 1.f };
+	sceneParameters.ambientColor = { 0.03f, 0.03f , 0.03f, 1.f };
+	sceneParameters.lightPosition = { 10.f, 0.f, 3.f, 1.f };
+	sceneParameters.lightColor = { 150.f, 150.f, 150.f, 1.f };
 	char* sceneData;
 	vmaMapMemory(allocator, sceneParameterBuffer.allocation, (void**)&sceneData);
 	int frameIndex = frameNumber % FRAME_OVERLAP;
@@ -918,7 +929,7 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 		RenderObject& object = first[i];
 		objectSSBO[i].modelMatrix = object.transformMatrix;
 		// rotate
-		//objectSSBO[i].modelMatrix = glm::rotate(objectSSBO[i].modelMatrix, glm::radians(frameNumber * 0.25f), glm::vec3(0, 1, 0));
+		objectSSBO[i].modelMatrix = glm::rotate(objectSSBO[i].modelMatrix, glm::radians(frameNumber * 0.25f), glm::vec3(0, 1, 0));
 	}
 	vmaUnmapMemory(allocator, getCurrentFrame().objectBuffer.allocation);
 
@@ -950,7 +961,7 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 		model = glm::rotate(model, glm::radians(frameNumber * 0.5f), glm::vec3(0, 1, 0));
 
 		MeshPushConstants constants;
-		constants.renderMatrix = model;
+		constants.cameraPosition = camPos;
 
 		vkCmdPushConstants(commandBuffer, object.material->pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(MeshPushConstants), &constants);
 
@@ -1044,7 +1055,8 @@ void App::initDescriptors()
 	VkDescriptorSetLayoutBinding metallicBinding = VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1);
 	VkDescriptorSetLayoutBinding roughnessBinding = VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 2);
 	VkDescriptorSetLayoutBinding normalBinding = VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 3);
-	VkDescriptorSetLayoutBinding pbrBindings[] = { albedoBinding, metallicBinding, roughnessBinding, normalBinding };
+	VkDescriptorSetLayoutBinding aoBinding = VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 4);
+	VkDescriptorSetLayoutBinding pbrBindings[] = { albedoBinding, metallicBinding, roughnessBinding, normalBinding, aoBinding };
 	VkDescriptorSetLayoutCreateInfo set4info = {};
 	set4info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
 	set4info.pNext = nullptr;

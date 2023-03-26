@@ -14,8 +14,7 @@
 
 struct MeshPushConstants
 {
-	glm::vec4 data;
-	glm::mat4 renderMatrix;
+	glm::vec3 cameraPosition;
 };
 
 struct DeletionQueue
@@ -56,6 +55,7 @@ struct PBRMaterial
 	Texture metallic;
 	Texture roughness;
 	Texture normal;
+	Texture ao;
 };
 
 struct RenderObject

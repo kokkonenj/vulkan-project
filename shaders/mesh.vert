@@ -9,6 +9,7 @@ layout (location = 0) out vec3 outColor;
 layout (location = 1) out vec2 texCoord;
 layout (location = 2) out vec3 vertPos;
 layout (location = 3) out vec3 normal;
+layout (location = 4) out vec3 camPos;
 
 layout(set = 0, binding = 0) uniform CameraBuffer
 {
@@ -29,8 +30,7 @@ layout(std140, set = 1, binding = 0) readonly buffer ObjectBuffer
 
 layout (push_constant) uniform constants
 {
-	vec4 data;
-	mat4 renderMatrix;
+	vec3 cameraPosition;
 } PushConstants;
 
 void main()
@@ -39,8 +39,10 @@ void main()
 	mat4 transformMatrix = (cameraData.viewproj * modelMatrix);
 	gl_Position = transformMatrix * vec4(aPos, 1.0);
 	vec4 vertPos4 = modelMatrix * vec4(aPos, 1.0);
+	mat4 invView = inverse(cameraData.view);
+	camPos = vec3(invView[3][0], invView[3][1], invView[3][2]);
 	outColor = aColor;
 	texCoord = aTexCoord;
-	vertPos = vec3(vertPos4) / vertPos4.w;
-	normal = mat3(transpose(inverse(modelMatrix))) * aNormal;
+	vertPos = vec3(vertPos4);
+	normal = mat3(modelMatrix) * aNormal;
 }
