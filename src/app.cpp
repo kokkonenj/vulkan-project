@@ -728,30 +728,30 @@ void App::loadMeshes()
 void App::loadImages()
 {
 	Texture room;
-	utils::loadImageFromFile(this, "../../assets/viking_room.png", room.image);
+	utils::loadImageFromFile(this, "../../assets/viking_room.png", room.image, VK_FORMAT_R8G8B8A8_SRGB);
 	VkImageViewCreateInfo imageInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R8G8B8A8_SRGB, room.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
 	vkCreateImageView(device, &imageInfo, nullptr, &room.imageView);
 	loadedTextures["room_diffuse"] = room;
 
 	PBRMaterial rustedIron = {};
 
-	utils::loadImageFromFile(this, "../../assets/rustediron2_basecolor.png", rustedIron.albedo.image);
+	utils::loadImageFromFile(this, "../../assets/rustediron2_basecolor.png", rustedIron.albedo.image, VK_FORMAT_R8G8B8A8_SRGB);
 	imageInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R8G8B8A8_SRGB, rustedIron.albedo.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
 	vkCreateImageView(device, &imageInfo, nullptr, &rustedIron.albedo.imageView);
 
-	utils::loadImageFromFile(this, "../../assets/rustediron2_metallic.png", rustedIron.metallic.image);
+	utils::loadImageFromFile(this, "../../assets/rustediron2_metallic.png", rustedIron.metallic.image, VK_FORMAT_R8G8B8A8_SRGB);
 	imageInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R8G8B8A8_SRGB, rustedIron.metallic.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
 	vkCreateImageView(device, &imageInfo, nullptr, &rustedIron.metallic.imageView);
 
-	utils::loadImageFromFile(this, "../../assets/rustediron2_roughness.png", rustedIron.roughness.image);
+	utils::loadImageFromFile(this, "../../assets/rustediron2_roughness.png", rustedIron.roughness.image, VK_FORMAT_R8G8B8A8_SRGB);
 	imageInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R8G8B8A8_SRGB, rustedIron.roughness.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
 	vkCreateImageView(device, &imageInfo, nullptr, &rustedIron.roughness.imageView);
 
-	utils::loadImageFromFile(this, "../../assets/rustediron2_normal.png", rustedIron.normal.image);
-	imageInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R8G8B8A8_SRGB, rustedIron.normal.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
+	utils::loadImageFromFile(this, "../../assets/rustediron2_normal.png", rustedIron.normal.image, VK_FORMAT_R8G8B8A8_UNORM);
+	imageInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R8G8B8A8_UNORM, rustedIron.normal.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
 	vkCreateImageView(device, &imageInfo, nullptr, &rustedIron.normal.imageView);
 
-	utils::loadImageFromFile(this, "../../assets/rustediron2_ao.png", rustedIron.ao.image);
+	utils::loadImageFromFile(this, "../../assets/rustediron2_ao.png", rustedIron.ao.image, VK_FORMAT_R8G8B8A8_SRGB);
 	imageInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R8G8B8A8_SRGB, rustedIron.ao.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
 	vkCreateImageView(device, &imageInfo, nullptr, &rustedIron.ao.imageView);
 
@@ -895,7 +895,7 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 {
 	glm::vec3 camPos = { 0.f, 0.f, -3.f };
 	glm::mat4 view = glm::translate(glm::mat4(1.f), camPos);
-	glm::mat4 projection = glm::perspective(glm::radians(70.f), (float) windowExtent.width / windowExtent.height, 0.1f, 200.0f);
+	glm::mat4 projection = glm::perspective(glm::radians(20.f), (float) windowExtent.width / windowExtent.height, 0.1f, 200.0f);
 	projection[1][1] *= -1;
 
 	// send camera data to uniform buffer

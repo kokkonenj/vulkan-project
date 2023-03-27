@@ -3,5 +3,5 @@
 #include <app.h>
 
 namespace utils {
-	bool loadImageFromFile(App* app, const char* file, AllocatedImage& outImage);
+	bool loadImageFromFile(App* app, const char* file, AllocatedImage& outImage, VkFormat format);
 }

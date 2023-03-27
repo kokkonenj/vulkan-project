@@ -4,7 +4,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
-bool utils::loadImageFromFile(App* app, const char* file, AllocatedImage& outImage)
+bool utils::loadImageFromFile(App* app, const char* file, AllocatedImage& outImage, VkFormat format)
 {
 	int texWidth, texHeight, texChannels;
 	stbi_uc* pixels = stbi_load(file, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
@@ -16,7 +16,7 @@ bool utils::loadImageFromFile(App* app, const char* file, AllocatedImage& outIma
 
 	void* pPixels = pixels;
 	VkDeviceSize imageSize = texWidth * texHeight * 4;
-	VkFormat imageFormat = VK_FORMAT_R8G8B8A8_SRGB;
+	VkFormat imageFormat = format;
 	AllocatedBuffer stagingBuffer = app->createBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
 
 	void* data;

@@ -44,5 +44,5 @@ void main()
 	outColor = aColor;
 	texCoord = aTexCoord;
 	vertPos = vec3(vertPos4);
-	normal = mat3(modelMatrix) * aNormal;
+	normal = transpose(inverse(mat3(modelMatrix))) * aNormal;
 }

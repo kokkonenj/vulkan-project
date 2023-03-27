@@ -84,7 +84,7 @@ void main()
 	float roughness = texture(roughnessMap, texCoord).r;
 	float ao = texture(aoMap, texCoord).r;
 
-	vec3 N = normalize(normal);
+	vec3 N = getNormalfromMap();
 	vec3 V = normalize(camPos - vertPos);
 
 	vec3 F0 = vec3(0.04);
