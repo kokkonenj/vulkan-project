@@ -2,6 +2,7 @@
 
 #include <vk_types.h>
 #include <vector>
+#include <glm/vec4.hpp>
 #include <glm/vec3.hpp>
 #include <glm/vec2.hpp>
 
@@ -18,6 +19,7 @@ struct Vertex
 	glm::vec3 normal;
 	glm::vec3 color;
 	glm::vec2 uv;
+	glm::vec4 tangent;
 	static VertexInputDescription getVertexDescription();
 
 	bool operator==(const Vertex& other) const

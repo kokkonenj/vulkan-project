@@ -59,10 +59,18 @@ VertexInputDescription Vertex::getVertexDescription()
 	uvAttribute.format = VK_FORMAT_R32G32_SFLOAT;
 	uvAttribute.offset = offsetof(Vertex, uv);
 
+	// tangent stored at location = 4
+	VkVertexInputAttributeDescription tangentAttribute = {};
+	tangentAttribute.binding = 0;
+	tangentAttribute.location = 4;
+	tangentAttribute.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+	tangentAttribute.offset = offsetof(Vertex, tangent);
+
 	description.attributes.push_back(positionAttribute);
 	description.attributes.push_back(normalAttribute);
 	description.attributes.push_back(colorAttribute);
 	description.attributes.push_back(uvAttribute);
+	description.attributes.push_back(tangentAttribute);
 	return description;
 }
 
@@ -147,6 +155,44 @@ bool Mesh::loadFromObj(const char* filename)
 			}
 			index_offset += fv;
 		}
+	}
+
+	// calculate tangents
+	for (size_t t = 0; t < indices.size(); t+=3)
+	{
+		size_t id1 = indices.at(t + 0);
+		size_t id2 = indices.at(t + 1);
+		size_t id3 = indices.at(t + 2);
+		
+		Vertex& v1 = vertices.at(id1);
+		Vertex& v2 = vertices.at(id2);
+		Vertex& v3 = vertices.at(id3);
+
+		glm::vec3 edge1 = glm::vec3(v2.position - v1.position);
+		glm::vec3 edge2 = glm::vec3(v3.position - v1.position);
+
+		float du1 = v2.uv.x - v1.uv.x;
+		float dv1 = v2.uv.y - v1.uv.y;
+
+		float du2 = v3.uv.x - v1.uv.x;
+		float dv2 = v3.uv.y - v1.uv.y;
+
+		float div = (du1 * dv2 - du2 * dv1);
+		float fc = 1.f / div;
+
+		glm::vec3 tang = {
+			fc * (dv2 * edge1.x - dv1 * edge2.x),
+			fc * (dv2 * edge1.y - dv1 * edge2.y),
+			fc * (dv2 * edge1.z - dv1 * edge2.z) };
+		tang = glm::normalize(tang);
+
+		float sx = du1, sy = du2;
+		float tx = dv1, ty = dv2;
+		float handedness = ((tx * sy - ty * sx) < 0.f) ? -1.f : 1.f;
+		glm::vec4 t4 = glm::vec4(tang, handedness);
+		v1.tangent = t4;
+		v2.tangent = t4;
+		v3.tangent = t4;
 	}
 	
 	auto end = std::chrono::system_clock::now();

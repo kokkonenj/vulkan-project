@@ -4,12 +4,14 @@ layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec3 aNormal;
 layout (location = 2) in vec3 aColor;
 layout (location = 3) in vec2 aTexCoord;
+layout (location = 4) in vec4 aTangent;
 
 layout (location = 0) out vec3 outColor;
 layout (location = 1) out vec2 texCoord;
 layout (location = 2) out vec3 vertPos;
 layout (location = 3) out vec3 normal;
 layout (location = 4) out vec3 camPos;
+layout (location = 5) out vec4 tangent;
 
 layout(set = 0, binding = 0) uniform CameraBuffer
 {
@@ -44,5 +46,6 @@ void main()
 	outColor = aColor;
 	texCoord = aTexCoord;
 	vertPos = vec3(vertPos4);
-	normal = transpose(inverse(mat3(modelMatrix))) * aNormal;
+	normal = normalize(mat3(modelMatrix) * aNormal);
+	tangent = vec4(normalize(mat3(modelMatrix) * aTangent.xyz), aTangent.w);
 }

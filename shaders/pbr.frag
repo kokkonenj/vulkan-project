@@ -5,6 +5,7 @@ layout (location = 1) in vec2 texCoord;
 layout (location = 2) in vec3 vertPos;
 layout (location = 3) in vec3 normal;
 layout (location = 4) in vec3 camPos;
+layout (location = 5) in vec4 inTangent;
 
 layout (location = 0) out vec4 outColor;
 
@@ -27,19 +28,12 @@ layout (set = 2, binding = 4) uniform sampler2D aoMap;
 
 vec3 getNormalfromMap()
 {
-	vec3 tangentNormal = normalize(texture(normalMap, texCoord).xyz * 2.0 - 1.0);
-
-	vec3 Q1 = dFdx(vertPos);
-	vec3 Q2 = dFdy(vertPos);
-	vec2 st1 = dFdx(texCoord);
-	vec2 st2 = dFdy(texCoord);
-
-	vec3 N = normalize(normal);
-	vec3 T = normalize(Q1*st2.t - Q2*st1.t);
-	vec3 B = -normalize(cross(N,T));
-	mat3 TBN = mat3(T, B, N);
-
-	return normalize(TBN * tangentNormal);
+	vec3 tangent = inTangent.xyz;
+	tangent = (tangent - dot(tangent, normal) * normal);
+	vec3 bitangent = cross(normal, inTangent.xyz) * inTangent.w;
+	mat3 TBN = mat3(tangent, bitangent, normal);
+	vec3 localNormal = 2.0 * texture(normalMap, texCoord).rgb - 1.0;
+	return normalize(TBN * localNormal);	
 }
 
 vec3 fresnelSchlick(float cosTheta, vec3 F0)
