@@ -43,9 +43,11 @@ App::App()
 	initCommands();
 	initDefaultRenderpass();
 	initFramebuffers();
+	initBloomPass();
 	initSyncStructures();
 	initDescriptors();
 	initPipelines();
+	initBloomPipeline();
 	loadImages();
 	loadMeshes();
 	initScene();
@@ -183,13 +185,22 @@ void App::initSwapchain()
 
 	// colors for MSAA
 	VkExtent3D colorImageExtent = { windowExtent.width, windowExtent.height, 1 };
-	VkImageCreateInfo colorImageInfo = VkInit::imageCreateInfo(swapchainImageFormat, VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, colorImageExtent, msaaSamples);
+	VkImageCreateInfo colorImageInfo = VkInit::imageCreateInfo(swapchainImageFormat, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, colorImageExtent, msaaSamples);
 	VmaAllocationCreateInfo colorImageAllocInfo = {};
 	colorImageAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
 	colorImageAllocInfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 	vmaCreateImage(allocator, &colorImageInfo, &colorImageAllocInfo, &colorImage.image, &colorImage.allocation, nullptr);
 	VkImageViewCreateInfo colorViewInfo = VkInit::imageviewCreateInfo(swapchainImageFormat, colorImage.image, VK_IMAGE_ASPECT_COLOR_BIT);
 	VK_CHECK(vkCreateImageView(device, &colorViewInfo, nullptr, &colorImageView));
+
+	// bloom image
+	VkImageCreateInfo bloomImageInfo = VkInit::imageCreateInfo(swapchainImageFormat, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, colorImageExtent, msaaSamples);
+	VmaAllocationCreateInfo bloomImageAllocInfo = {};
+	bloomImageAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+	bloomImageAllocInfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	vmaCreateImage(allocator, &bloomImageInfo, &bloomImageAllocInfo, &bloomImage.image, &bloomImage.allocation, nullptr);
+	VkImageViewCreateInfo bloomViewInfo = VkInit::imageviewCreateInfo(swapchainImageFormat, bloomImage.image, VK_IMAGE_ASPECT_COLOR_BIT);
+	VK_CHECK(vkCreateImageView(device, &bloomViewInfo, nullptr, &bloomImageView));
 
 	// cleanup
 	mainDeletionQueue.push_function([=]()
@@ -198,6 +209,8 @@ void App::initSwapchain()
 			vmaDestroyImage(allocator, colorImage.image, colorImage.allocation);
 			vkDestroyImageView(device, depthImageView, nullptr);
 			vmaDestroyImage(allocator, depthImage.image, depthImage.allocation);
+			vkDestroyImageView(device, bloomImageView, nullptr);
+			vmaDestroyImage(allocator, bloomImage.image, bloomImage.allocation);
 		});
 }
 
@@ -241,11 +254,12 @@ void App::initDefaultRenderpass()
 	colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-	VkAttachmentReference colorAttatchmentReference = {};
-	colorAttatchmentReference.attachment = 0;
-	colorAttatchmentReference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	VkAttachmentReference colorAttatchmentReference[2] = {
+		{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL},
+		{1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL}
+	};
 
 	// depth attachment
 	VkAttachmentDescription depthAttachment = {};
@@ -260,7 +274,7 @@ void App::initDefaultRenderpass()
 	depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
 	VkAttachmentReference depthAttachmentReference = {};
-	depthAttachmentReference.attachment = 1;
+	depthAttachmentReference.attachment = 2;
 	depthAttachmentReference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
 	// color attachment resolve for MSAA
@@ -275,14 +289,14 @@ void App::initDefaultRenderpass()
 	colorAttachmentResolve.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
 	VkAttachmentReference colorATtachmentResolveReference = {};
-	colorATtachmentResolveReference.attachment = 2;
+	colorATtachmentResolveReference.attachment = 3;
 	colorATtachmentResolveReference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
 	// subpass
 	VkSubpassDescription subpass = {};
 	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-	subpass.colorAttachmentCount = 1;
-	subpass.pColorAttachments = &colorAttatchmentReference;
+	subpass.colorAttachmentCount = 2;
+	subpass.pColorAttachments = colorAttatchmentReference;
 	subpass.pDepthStencilAttachment = &depthAttachmentReference;
 	subpass.pResolveAttachments = &colorATtachmentResolveReference;
 
@@ -306,12 +320,12 @@ void App::initDefaultRenderpass()
 	VkSubpassDependency dependencies[2] = { dependency, depthDependency };
 
 	// attachments array
-	VkAttachmentDescription attachments[3] = { colorAttachment, depthAttachment, colorAttachmentResolve };
+	VkAttachmentDescription attachments[4] = { colorAttachment, colorAttachment, depthAttachment, colorAttachmentResolve };
 
 	VkRenderPassCreateInfo renderPassInfo = {};
 	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	renderPassInfo.attachmentCount = 3;
-	renderPassInfo.pAttachments = &attachments[0];
+	renderPassInfo.attachmentCount = 4;
+	renderPassInfo.pAttachments = attachments;
 	renderPassInfo.subpassCount = 1;
 	renderPassInfo.pSubpasses = &subpass;
 	renderPassInfo.dependencyCount = 2;
@@ -341,10 +355,10 @@ void App::initFramebuffers()
 
 	for (unsigned int i = 0; i < swapchainImageCount; i++)
 	{
-		VkImageView attachments[3] = { colorImageView, depthImageView, swapchainImageViews[i] };
+		VkImageView attachments[4] = { colorImageView, bloomImageView, depthImageView, swapchainImageViews[i] };
 
 		frameBufferInfo.pAttachments = attachments;
-		frameBufferInfo.attachmentCount = 3;
+		frameBufferInfo.attachmentCount = 4;
 		VK_CHECK(vkCreateFramebuffer(device, &frameBufferInfo, nullptr, &frameBuffers[i]));
 
 		mainDeletionQueue.push_function([=]()
@@ -396,7 +410,7 @@ void App::initPipelines()
 	VkShaderModule pbrVertShader;
 	if (!loadShaderModule("../../shaders/pbr.vert.spv", &pbrVertShader))
 	{
-		std::cout << "Error when loading the mesh vertex shader module" << std::endl;
+		std::cout << "Error loading pbr vertex shader" << std::endl;
 	}
 
 	// push constants
@@ -551,12 +565,12 @@ void App::draw()
 	// depth
 	VkClearValue depthClear;
 	depthClear.depthStencil.depth = 1.f;
-	VkClearValue clearValues[] = { clearValue, depthClear };
+	VkClearValue clearValues[] = { clearValue, clearValue, depthClear };
 
 	// Starting the renderpass
 	VkRenderPassBeginInfo renderPassInfo = VkInit::renderpassBeginInfo(renderPass, windowExtent, frameBuffers[swapchainImageIndex]);
-	renderPassInfo.clearValueCount = 2;
-	renderPassInfo.pClearValues = &clearValues[0];
+	renderPassInfo.clearValueCount = 3;
+	renderPassInfo.pClearValues = clearValues;
 	vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
 	/* ----- RENDERING COMMANDS BEGIN ----- */
@@ -567,6 +581,24 @@ void App::draw()
 
 	// Finalize render pass and command buffer
 	vkCmdEndRenderPass(cmd);
+
+	/*
+	renderPassInfo = VkInit::renderpassBeginInfo(bloomPass, windowExtent, bloomFramebuffer);
+	renderPassInfo.clearValueCount = 1;
+	renderPassInfo.pClearValues = &clearValue;
+	vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+	GPUBlurData blur;
+	blur.direction = 1;
+	void* data;
+	vmaMapMemory(allocator, getCurrentFrame().blurBuffer.allocation, &data);
+	memcpy(data, &blur, sizeof(GPUBlurData));
+	vmaUnmapMemory(allocator, getCurrentFrame().blurBuffer.allocation);
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, bloomPipelineLayout, 0, 1, &getCurrentFrame().blurDescriptor, 0, nullptr);
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, blurPipeline);
+	vkCmdDraw(cmd, 3, 1, 0, 0);
+	vkCmdEndRenderPass(cmd);
+	*/
+
 	VK_CHECK(vkEndCommandBuffer(cmd));
 
 	// submit image to the queue
@@ -965,6 +997,18 @@ void App::initDescriptors()
 	set4info.pBindings = pbrBindings;
 	vkCreateDescriptorSetLayout(device, &set4info, nullptr, &PBRSetLayout);
 
+	// bloom binding
+	VkDescriptorSetLayoutBinding kernelDirectionBinding = VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+	VkDescriptorSetLayoutBinding samplerBinding = VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1);
+	VkDescriptorSetLayoutBinding blurBindings[] = { kernelDirectionBinding, samplerBinding };
+	VkDescriptorSetLayoutCreateInfo set3info = {};
+	set3info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	set3info.pNext = nullptr;
+	set3info.bindingCount = std::size(blurBindings);
+	set3info.flags = 0;
+	set3info.pBindings = blurBindings;
+	vkCreateDescriptorSetLayout(device, &set3info, nullptr, &bloomSetLayout);
+
 	const size_t sceneParameterBufferSize = FRAME_OVERLAP * padUniformBufferSize(sizeof(GPUSceneData));
 	sceneParameterBuffer = createBuffer(sceneParameterBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
@@ -974,6 +1018,8 @@ void App::initDescriptors()
 		
 		const int MAX_OBJECTS = 10000;
 		frames[i].objectBuffer = createBuffer(sizeof(GPUObjectData) * MAX_OBJECTS, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+
+		frames[i].blurBuffer = createBuffer(sizeof(GPUBlurData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
 		// alloc one descritpor set for each frame
 		VkDescriptorSetAllocateInfo allocInfo = {};
@@ -993,6 +1039,15 @@ void App::initDescriptors()
 		objectSetAlloc.pSetLayouts = &objectSetLayout;
 		vkAllocateDescriptorSets(device, &objectSetAlloc, &frames[i].objectDescriptor);
 
+		// allocate blur buffer
+		VkDescriptorSetAllocateInfo blurAllocInfo = {};
+		blurAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		blurAllocInfo.pNext = nullptr;
+		blurAllocInfo.descriptorPool = descriptorPool;
+		blurAllocInfo.descriptorSetCount = 1;
+		blurAllocInfo.pSetLayouts = &bloomSetLayout;
+		vkAllocateDescriptorSets(device, &blurAllocInfo, &frames[i].blurDescriptor);
+
 		// info about camera buffer for descriptor
 		VkDescriptorBufferInfo cameraInfo = {};
 		cameraInfo.buffer = frames[i].cameraBuffer.buffer;
@@ -1011,14 +1066,30 @@ void App::initDescriptors()
 		objectBufferInfo.offset = 0;
 		objectBufferInfo.range = sizeof(GPUObjectData) * MAX_OBJECTS;
 
+		// blur buffer
+		VkDescriptorBufferInfo blurBufferInfo = {};
+		blurBufferInfo.buffer = frames[i].blurBuffer.buffer;
+		blurBufferInfo.offset = 0;
+		blurBufferInfo.range = sizeof(GPUBlurData);
+
+		VkSamplerCreateInfo samplerInfo = VkInit::samplerCreateInfo(VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+		VkSampler linearSampler;
+		vkCreateSampler(device, &samplerInfo, nullptr, &linearSampler);
+		VkDescriptorImageInfo bloomImageInfo = {};
+		bloomImageInfo.sampler = linearSampler;
+		bloomImageInfo.imageView = bloomImageView;
+		bloomImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		VkWriteDescriptorSet blurSampler = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, frames[i].blurDescriptor, &bloomImageInfo, 1);
+
 		// write descriptors
 		VkWriteDescriptorSet cameraWrite = VkInit::writeDescriptorBuffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frames[i].globalDescriptor, &cameraInfo, 0);
 		VkWriteDescriptorSet sceneWrite = VkInit::writeDescriptorBuffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, frames[i].globalDescriptor, &sceneInfo, 1);
 		VkWriteDescriptorSet objectWrite = VkInit::writeDescriptorBuffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frames[i].objectDescriptor, &objectBufferInfo, 0);
+		VkWriteDescriptorSet blurWrite = VkInit::writeDescriptorBuffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frames[i].blurDescriptor, &blurBufferInfo, 0);
 
-		VkWriteDescriptorSet setWrites[] = { cameraWrite, sceneWrite, objectWrite };
+		VkWriteDescriptorSet setWrites[] = { blurSampler, cameraWrite, sceneWrite, objectWrite, blurWrite };
 
-		vkUpdateDescriptorSets(device, 3, setWrites, 0, nullptr);
+		vkUpdateDescriptorSets(device, 5, setWrites, 0, nullptr);
 	}
 
 	// add buffers to deletion queues
@@ -1028,6 +1099,7 @@ void App::initDescriptors()
 			vkDestroyDescriptorSetLayout(device, objectSetLayout, nullptr);
 			vkDestroyDescriptorSetLayout(device, globalSetLayout, nullptr);
 			vkDestroyDescriptorSetLayout(device, PBRSetLayout, nullptr);
+			vkDestroyDescriptorSetLayout(device, bloomSetLayout, nullptr);
 			vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 
 			for (int i = 0; i < FRAME_OVERLAP; i++)
@@ -1067,4 +1139,110 @@ size_t App::padUniformBufferSize(size_t originalSize)
 		alignedSize = (alignedSize + minAlignment - 1) & ~(minAlignment - 1);
 	}
 	return alignedSize;
+}
+
+void App::initBloomPass()
+{
+	// just color attachment for blurring
+	VkAttachmentDescription colorAttachment = {};
+	colorAttachment.format = swapchainImageFormat;
+	colorAttachment.samples = msaaSamples;
+	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD; // preserve the contents 
+	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+	VkAttachmentReference colorAttatchmentReference = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+
+	VkSubpassDescription subpass = {};
+	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpass.colorAttachmentCount = 1;
+	subpass.pColorAttachments = &colorAttatchmentReference;
+
+	VkSubpassDependency dependency = {};
+	dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+	dependency.dstSubpass = 0;
+	dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependency.srcAccessMask = 0;
+	dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+	VkRenderPassCreateInfo renderPassInfo = {};
+	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	renderPassInfo.attachmentCount = 1;
+	renderPassInfo.pAttachments = &colorAttachment;
+	renderPassInfo.subpassCount = 1;
+	renderPassInfo.pSubpasses = &subpass;
+	renderPassInfo.dependencyCount = 1;
+	renderPassInfo.pDependencies = &dependency;
+
+	VK_CHECK(vkCreateRenderPass(device, &renderPassInfo, nullptr, &bloomPass));
+
+	mainDeletionQueue.push_function([=]()
+		{
+			vkDestroyRenderPass(device, bloomPass, nullptr);
+		});
+
+	// create framebuffer
+	VkFramebufferCreateInfo frameBufferInfo = {};
+	frameBufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+	frameBufferInfo.pNext = nullptr;
+	frameBufferInfo.renderPass = bloomPass;
+	frameBufferInfo.attachmentCount = 1;
+	frameBufferInfo.width = windowExtent.width;
+	frameBufferInfo.height = windowExtent.height;
+	frameBufferInfo.layers = 1;
+	frameBufferInfo.pAttachments = &bloomImageView;
+	frameBufferInfo.attachmentCount = 1;
+	VK_CHECK(vkCreateFramebuffer(device, &frameBufferInfo, nullptr, &bloomFramebuffer));
+
+	mainDeletionQueue.push_function([=]()
+		{
+			vkDestroyFramebuffer(device, bloomFramebuffer, nullptr);
+		});
+}
+
+void App::initBloomPipeline()
+{
+	VkShaderModule bloomVert = {};
+	if (!loadShaderModule("../../shaders/gaussblur.vert.spv", &bloomVert))
+	{
+		std::cout << "Error loading blur vert shader" << std::endl;
+	}
+
+	VkShaderModule bloomFrag;
+	if (!loadShaderModule("../../shaders/gaussblur.frag.spv", &bloomFrag))
+	{
+		std::cout << "Error loading blur frag shader" << std::endl;
+	}
+
+	PipelineBuilder pipelineBuilder;
+	pipelineBuilder.vertexInputInfo = VkInit::vertexInputStateCreateInfo();
+	pipelineBuilder.inputAssembly = VkInit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+	pipelineBuilder.viewport.x = 0.0f;
+	pipelineBuilder.viewport.y = 0.0f;
+	pipelineBuilder.viewport.width = (float)windowExtent.width;
+	pipelineBuilder.viewport.height = (float)windowExtent.height;
+	pipelineBuilder.viewport.minDepth = 0.0f;
+	pipelineBuilder.viewport.maxDepth = 1.0f;
+	pipelineBuilder.scissor.offset = { 0, 0 };
+	pipelineBuilder.scissor.extent = windowExtent;
+	pipelineBuilder.rasterizer = VkInit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
+	pipelineBuilder.multisampling = VkInit::multisamplingStateCreateInfo(VK_SAMPLE_COUNT_1_BIT);
+	pipelineBuilder.colorBlendAttachment = VkInit::colorBlendAttachmentState();
+	pipelineBuilder.depthStencil = VkInit::depthStencilCreateInfo(true, true, VK_COMPARE_OP_LESS_OR_EQUAL);
+	pipelineBuilder.vertexInputInfo.pVertexAttributeDescriptions = nullptr;
+	pipelineBuilder.vertexInputInfo.vertexAttributeDescriptionCount = 0;
+	pipelineBuilder.vertexInputInfo.pVertexBindingDescriptions = nullptr;
+	pipelineBuilder.vertexInputInfo.vertexBindingDescriptionCount = 0;
+
+	pipelineBuilder.shaderStages.clear();
+	pipelineBuilder.shaderStages.push_back(
+		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_VERTEX_BIT, bloomVert));
+	pipelineBuilder.shaderStages.push_back(
+		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_FRAGMENT_BIT, bloomFrag));
+	pipelineBuilder.pipelineLayout = bloomPipelineLayout;
+	blurPipeline = pipelineBuilder.buildPipeline(device, bloomPass);
 }

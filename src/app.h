@@ -78,6 +78,14 @@ struct FrameData
 
 	AllocatedBuffer objectBuffer;
 	VkDescriptorSet objectDescriptor;
+
+	AllocatedBuffer blurBuffer;
+	VkDescriptorSet blurDescriptor;
+};
+
+struct GPUBlurData
+{
+	bool direction;
 };
 
 struct GPUCameraData
@@ -170,6 +178,12 @@ private:
 	// post process
 	AllocatedImage bloomImage;
 	VkImageView bloomImageView;
+	VkPipeline blurPipeline;
+	VkPipelineLayout bloomPipelineLayout;
+	VkDescriptorSetLayout bloomSetLayout;
+
+	VkRenderPass bloomPass;
+	VkFramebuffer bloomFramebuffer;
 
 	VkDescriptorPool descriptorPool;
 	VkDescriptorSetLayout globalSetLayout;
@@ -206,4 +220,7 @@ private:
 
 	void initDescriptors();
 	size_t padUniformBufferSize(size_t originalSize);
+
+	void initBloomPass();
+	void initBloomPipeline();
 };
