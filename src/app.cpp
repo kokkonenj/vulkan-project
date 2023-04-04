@@ -399,14 +399,13 @@ void App::initPipelines()
 		std::cout << "Error when loading the mesh vertex shader module" << std::endl;
 	}
 
-	PipelineBuilder pipelineBuilder;
-
 	// push constants
 	VkPushConstantRange pushConstants;
 	pushConstants.offset = 0;
 	pushConstants.size = sizeof(MeshPushConstants);
 	pushConstants.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 
+	PipelineBuilder pipelineBuilder;
 	pipelineBuilder.vertexInputInfo = VkInit::vertexInputStateCreateInfo();
 	pipelineBuilder.inputAssembly = VkInit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
 	pipelineBuilder.viewport.x = 0.0f;
@@ -420,10 +419,8 @@ void App::initPipelines()
 	pipelineBuilder.rasterizer = VkInit::rasterizationStateCreateInfo(VK_POLYGON_MODE_FILL);
 	pipelineBuilder.multisampling = VkInit::multisamplingStateCreateInfo(msaaSamples);
 	pipelineBuilder.colorBlendAttachment = VkInit::colorBlendAttachmentState();
-
 	pipelineBuilder.depthStencil = VkInit::depthStencilCreateInfo(true, true, VK_COMPARE_OP_LESS_OR_EQUAL);
 
-	// build the mesh pipeline
 	VertexInputDescription vertexDescription = Vertex::getVertexDescription();
 	pipelineBuilder.vertexInputInfo.pVertexAttributeDescriptions = vertexDescription.attributes.data();
 	pipelineBuilder.vertexInputInfo.vertexAttributeDescriptionCount = vertexDescription.attributes.size();
