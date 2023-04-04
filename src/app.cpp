@@ -387,41 +387,19 @@ void App::initSyncStructures()
 
 void App::initPipelines()
 {
-	VkShaderModule colorMeshShader;
-	if (!loadShaderModule("../../shaders/triangle.frag.spv", &colorMeshShader))
-	{
-		std::cout << "Error when loading the colored mesh shader" << std::endl;
-	}
-
-	VkShaderModule texturedMeshShader;
-	if (!loadShaderModule("../../shaders/textured_lit.frag.spv", &texturedMeshShader))
-	{
-		std::cout << "Error when loading the colored mesh shader" << std::endl;
-	}
-
 	VkShaderModule pbrFragShader;
 	if (!loadShaderModule("../../shaders/pbr.frag.spv", &pbrFragShader))
 	{
 		std::cout << "Error loading pbr frag shader" << std::endl;
 	}
 
-	VkShaderModule meshVertShader;
-	if (!loadShaderModule("../../shaders/mesh.vert.spv", &meshVertShader))
+	VkShaderModule pbrVertShader;
+	if (!loadShaderModule("../../shaders/pbr.vert.spv", &pbrVertShader))
 	{
 		std::cout << "Error when loading the mesh vertex shader module" << std::endl;
 	}
 
 	PipelineBuilder pipelineBuilder;
-
-	pipelineBuilder.shaderStages.push_back(
-		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_VERTEX_BIT, meshVertShader));
-
-	pipelineBuilder.shaderStages.push_back(
-		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_FRAGMENT_BIT, colorMeshShader));
-
-
-	// default empty pipeline layout info
-	VkPipelineLayoutCreateInfo meshPipelineLayoutInfo = VkInit::pipelineLayoutCreateInfo();
 
 	// push constants
 	VkPushConstantRange pushConstants;
@@ -429,27 +407,6 @@ void App::initPipelines()
 	pushConstants.size = sizeof(MeshPushConstants);
 	pushConstants.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 
-	meshPipelineLayoutInfo.pPushConstantRanges = &pushConstants;
-	meshPipelineLayoutInfo.pushConstantRangeCount = 1;
-
-	VkDescriptorSetLayout setLayouts[] = { globalSetLayout, objectSetLayout };
-
-	meshPipelineLayoutInfo.setLayoutCount = 2;
-	meshPipelineLayoutInfo.pSetLayouts = setLayouts;
-
-	VkPipelineLayout meshPipLayout;
-	VK_CHECK(vkCreatePipelineLayout(device, &meshPipelineLayoutInfo, nullptr, &meshPipLayout));
-
-	// start from the normal mesh layout
-	VkPipelineLayoutCreateInfo texturedPipelineLayoutInfo = meshPipelineLayoutInfo;
-	VkDescriptorSetLayout texturedSetLayouts[] = { globalSetLayout, objectSetLayout, singleTextureSetLayout };
-	texturedPipelineLayoutInfo.setLayoutCount = 3;
-	texturedPipelineLayoutInfo.pSetLayouts = texturedSetLayouts;
-
-	VkPipelineLayout texturedPipelineLayout;
-	VK_CHECK(vkCreatePipelineLayout(device, &texturedPipelineLayoutInfo, nullptr, &texturedPipelineLayout));
-
-	pipelineBuilder.pipelineLayout = meshPipLayout;
 	pipelineBuilder.vertexInputInfo = VkInit::vertexInputStateCreateInfo();
 	pipelineBuilder.inputAssembly = VkInit::inputAssemblyCreateInfo(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
 	pipelineBuilder.viewport.x = 0.0f;
@@ -473,21 +430,11 @@ void App::initPipelines()
 	pipelineBuilder.vertexInputInfo.pVertexBindingDescriptions = vertexDescription.bindings.data();
 	pipelineBuilder.vertexInputInfo.vertexBindingDescriptionCount = vertexDescription.bindings.size();
 
-	//build the mesh triangle pipeline
-	meshPipeline = pipelineBuilder.buildPipeline(device, renderPass);
-	createMaterial(meshPipeline, meshPipLayout, "defaultmesh");
-
-	pipelineBuilder.shaderStages.clear();
-	pipelineBuilder.shaderStages.push_back(
-		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_VERTEX_BIT, meshVertShader));
-	pipelineBuilder.shaderStages.push_back(
-		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_FRAGMENT_BIT, texturedMeshShader));
-	pipelineBuilder.pipelineLayout = texturedPipelineLayout;
-	VkPipeline texPipeline = pipelineBuilder.buildPipeline(device, renderPass);
-	createMaterial(texPipeline, texturedPipelineLayout, "texturedmesh");
-
 	// pbr pipeline
-	VkPipelineLayoutCreateInfo pbrPipelineLayoutInfo = meshPipelineLayoutInfo;
+	VkPipelineLayoutCreateInfo pbrPipelineLayoutInfo = VkInit::pipelineLayoutCreateInfo();
+	pbrPipelineLayoutInfo.pPushConstantRanges = &pushConstants;
+	pbrPipelineLayoutInfo.pushConstantRangeCount = 1;
+
 	VkDescriptorSetLayout pbrSetLayouts[] = { globalSetLayout, objectSetLayout, PBRSetLayout };
 	pbrPipelineLayoutInfo.setLayoutCount = std::size(pbrSetLayouts);
 	pbrPipelineLayoutInfo.pSetLayouts = pbrSetLayouts;
@@ -496,7 +443,7 @@ void App::initPipelines()
 
 	pipelineBuilder.shaderStages.clear();
 	pipelineBuilder.shaderStages.push_back(
-		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_VERTEX_BIT, meshVertShader));
+		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_VERTEX_BIT, pbrVertShader));
 	pipelineBuilder.shaderStages.push_back(
 		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_FRAGMENT_BIT, pbrFragShader));
 	pipelineBuilder.pipelineLayout = pbrPipelineLayout;
@@ -504,66 +451,39 @@ void App::initPipelines()
 	createMaterial(PBRPipeline, pbrPipelineLayout, "pbr");
 
 	// Deletion of shader modules and pipelines
-	vkDestroyShaderModule(device, meshVertShader, nullptr);
-	vkDestroyShaderModule(device, colorMeshShader, nullptr);
-	vkDestroyShaderModule(device, texturedMeshShader, nullptr);
+	vkDestroyShaderModule(device, pbrVertShader, nullptr);
 	vkDestroyShaderModule(device, pbrFragShader, nullptr);
 
 	mainDeletionQueue.push_function([=]() {
-		vkDestroyPipeline(device, meshPipeline, nullptr);
-		vkDestroyPipeline(device, texPipeline, nullptr);
 		vkDestroyPipeline(device, PBRPipeline, nullptr);
-
-		vkDestroyPipelineLayout(device, meshPipLayout, nullptr);
-		vkDestroyPipelineLayout(device, texturedPipelineLayout, nullptr);
 		vkDestroyPipelineLayout(device, pbrPipelineLayout, nullptr);
 		});
 }
 
 void App::initScene()
 {
-	RenderObject room;
-	room.mesh = getMesh("room");
-	room.material = getMaterial("texturedmesh");
-	room.transformMatrix = glm::mat4{ 1.0f };
-	room.transformMatrix = glm::rotate(room.transformMatrix, glm::radians(-90.f), glm::vec3(1.f, 0.f, 0.f));
-	room.transformMatrix = glm::rotate(room.transformMatrix, glm::radians(235.f), glm::vec3(0.f, 0.f, 1.f));
-	//renderables.push_back(room);
-
 	RenderObject sphere;
 	sphere.mesh = getMesh("sphere");
 	sphere.material = getMaterial("pbr");
 	sphere.transformMatrix = glm::mat4{ 1.0f };
 	renderables.push_back(sphere);
 
-	Material* texturedMat = getMaterial("texturedmesh");
 	Material* pbrMat = getMaterial("pbr");
-	
-	// allocate descriptor set for texture
-	VkDescriptorSetAllocateInfo allocInfo = {};
-	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocInfo.pNext = nullptr;
-	allocInfo.descriptorPool = descriptorPool;
-	allocInfo.descriptorSetCount = 1;
-	allocInfo.pSetLayouts = &singleTextureSetLayout;
-	vkAllocateDescriptorSets(device, &allocInfo, &texturedMat->textureSet);
 
 	// create sampler for texture
 	VkSamplerCreateInfo samplerInfo = VkInit::samplerCreateInfo(VK_FILTER_LINEAR);
 	VkSampler linearSampler;
 	vkCreateSampler(device, &samplerInfo, nullptr, &linearSampler);
 
-	// write descriptorset for texture
-	VkDescriptorImageInfo imageBufferInfo = {};
-	imageBufferInfo.sampler = linearSampler;
-	imageBufferInfo.imageView = loadedPBRMaterials["rustedIron"].albedo.imageView;
-	imageBufferInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	VkWriteDescriptorSet texture1 = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, texturedMat->textureSet, &imageBufferInfo, 0);
-	vkUpdateDescriptorSets(device, 1, &texture1, 0, nullptr);
-
 	// pbr stuff
+	VkDescriptorSetAllocateInfo allocInfo = {};
+	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocInfo.pNext = nullptr;
+	allocInfo.descriptorPool = descriptorPool;
+	allocInfo.descriptorSetCount = 1;
 	allocInfo.pSetLayouts = &PBRSetLayout;
 	vkAllocateDescriptorSets(device, &allocInfo, &pbrMat->textureSet);
+
 	VkDescriptorImageInfo albedoImageInfo = {};
 	albedoImageInfo.sampler = linearSampler;
 	albedoImageInfo.imageView = loadedPBRMaterials["rustedIron"].albedo.imageView;
@@ -720,46 +640,39 @@ void App::loadMeshes()
 	meshes["room"] = room;
 
 	Mesh sphere{};
-	sphere.loadFromObj("../../assets/sphere.obj");
+	sphere.loadFromObj("../../assets/sphere_smooth.obj");
 	uploadMesh(sphere);
 	meshes["sphere"] = sphere;
 }
 
 void App::loadImages()
 {
-	Texture room;
-	utils::loadImageFromFile(this, "../../assets/viking_room.png", room.image, VK_FORMAT_R8G8B8A8_SRGB);
-	VkImageViewCreateInfo imageInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R8G8B8A8_SRGB, room.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
-	vkCreateImageView(device, &imageInfo, nullptr, &room.imageView);
-	loadedTextures["room_diffuse"] = room;
-
 	PBRMaterial rustedIron = {};
 
 	utils::loadImageFromFile(this, "../../assets/rustediron2_basecolor.png", rustedIron.albedo.image, VK_FORMAT_R8G8B8A8_SRGB);
-	imageInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R8G8B8A8_SRGB, rustedIron.albedo.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
-	vkCreateImageView(device, &imageInfo, nullptr, &rustedIron.albedo.imageView);
+	VkImageViewCreateInfo albedoInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R8G8B8A8_SRGB, rustedIron.albedo.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
+	vkCreateImageView(device, &albedoInfo, nullptr, &rustedIron.albedo.imageView);
 
 	utils::loadImageFromFile(this, "../../assets/rustediron2_metallic.png", rustedIron.metallic.image, VK_FORMAT_R8G8B8A8_SRGB);
-	imageInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R8G8B8A8_SRGB, rustedIron.metallic.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
-	vkCreateImageView(device, &imageInfo, nullptr, &rustedIron.metallic.imageView);
+	VkImageViewCreateInfo metallicInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R8G8B8A8_SRGB, rustedIron.metallic.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
+	vkCreateImageView(device, &metallicInfo, nullptr, &rustedIron.metallic.imageView);
 
 	utils::loadImageFromFile(this, "../../assets/rustediron2_roughness.png", rustedIron.roughness.image, VK_FORMAT_R8G8B8A8_SRGB);
-	imageInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R8G8B8A8_SRGB, rustedIron.roughness.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
-	vkCreateImageView(device, &imageInfo, nullptr, &rustedIron.roughness.imageView);
+	VkImageViewCreateInfo roughnessInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R8G8B8A8_SRGB, rustedIron.roughness.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
+	vkCreateImageView(device, &roughnessInfo, nullptr, &rustedIron.roughness.imageView);
 
 	utils::loadImageFromFile(this, "../../assets/rustediron2_normal.png", rustedIron.normal.image, VK_FORMAT_R8G8B8A8_UNORM);
-	imageInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R8G8B8A8_UNORM, rustedIron.normal.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
-	vkCreateImageView(device, &imageInfo, nullptr, &rustedIron.normal.imageView);
+	VkImageViewCreateInfo normalInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R8G8B8A8_UNORM, rustedIron.normal.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
+	vkCreateImageView(device, &normalInfo, nullptr, &rustedIron.normal.imageView);
 
 	utils::loadImageFromFile(this, "../../assets/rustediron2_ao.png", rustedIron.ao.image, VK_FORMAT_R8G8B8A8_SRGB);
-	imageInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R8G8B8A8_SRGB, rustedIron.ao.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
-	vkCreateImageView(device, &imageInfo, nullptr, &rustedIron.ao.imageView);
+	VkImageViewCreateInfo aoInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R8G8B8A8_SRGB, rustedIron.ao.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
+	vkCreateImageView(device, &aoInfo, nullptr, &rustedIron.ao.imageView);
 
 	loadedPBRMaterials["rustedIron"] = rustedIron;
 
 	mainDeletionQueue.push_function([=]()
 		{
-			vkDestroyImageView(device, room.imageView, nullptr);
 			vkDestroyImageView(device, rustedIron.albedo.imageView, nullptr);
 			vkDestroyImageView(device, rustedIron.metallic.imageView, nullptr);
 			vkDestroyImageView(device, rustedIron.roughness.imageView, nullptr);
@@ -895,7 +808,7 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 {
 	glm::vec3 camPos = { 0.f, 0.f, -3.f };
 	glm::mat4 view = glm::translate(glm::mat4(1.f), camPos);
-	glm::mat4 projection = glm::perspective(glm::radians(20.f), (float) windowExtent.width / windowExtent.height, 0.1f, 200.0f);
+	glm::mat4 projection = glm::perspective(glm::radians(60.f), (float) windowExtent.width / windowExtent.height, 0.1f, 200.0f);
 	projection[1][1] *= -1;
 
 	// send camera data to uniform buffer
@@ -1040,16 +953,6 @@ void App::initDescriptors()
 	set2info.pBindings = &objectBinding;
 	vkCreateDescriptorSetLayout(device, &set2info, nullptr, &objectSetLayout);
 
-	// texture binding
-	VkDescriptorSetLayoutBinding textureBinding = VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-	VkDescriptorSetLayoutCreateInfo set3info = {};
-	set3info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-	set3info.pNext = nullptr;
-	set3info.bindingCount = 1;
-	set3info.flags = 0;
-	set3info.pBindings = &textureBinding;
-	vkCreateDescriptorSetLayout(device, &set3info, nullptr, &singleTextureSetLayout);
-
 	// pbr binding
 	VkDescriptorSetLayoutBinding albedoBinding = VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
 	VkDescriptorSetLayoutBinding metallicBinding = VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1);
@@ -1127,7 +1030,6 @@ void App::initDescriptors()
 			vmaDestroyBuffer(allocator, sceneParameterBuffer.buffer, sceneParameterBuffer.allocation);
 			vkDestroyDescriptorSetLayout(device, objectSetLayout, nullptr);
 			vkDestroyDescriptorSetLayout(device, globalSetLayout, nullptr);
-			vkDestroyDescriptorSetLayout(device, singleTextureSetLayout, nullptr);
 			vkDestroyDescriptorSetLayout(device, PBRSetLayout, nullptr);
 			vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 

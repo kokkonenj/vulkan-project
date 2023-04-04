@@ -148,9 +148,6 @@ private:
 	VkRenderPass renderPass;
 	std::vector<VkFramebuffer> frameBuffers;
 
-	VkPipelineLayout meshPipelineLayout;
-	VkPipeline meshPipeline;
-
 	// rendering
 	std::vector<RenderObject> renderables;
 	std::unordered_map<std::string, Material> materials;
@@ -169,6 +166,10 @@ private:
 	// MSAA variables
 	AllocatedImage colorImage;
 	VkImageView colorImageView;
+
+	// post process
+	AllocatedImage bloomImage;
+	VkImageView bloomImageView;
 
 	VkDescriptorPool descriptorPool;
 	VkDescriptorSetLayout globalSetLayout;
