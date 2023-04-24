@@ -507,6 +507,7 @@ void App::initPipelines()
 		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_FRAGMENT_BIT, gBufferFrag));
 	pipelineBuilder.pipelineLayout = pipelineLayouts.gBuffer;
 	pipelines.gBuffer = pipelineBuilder.buildPipeline(device, frameBuffers.gBuffer.renderPass);
+	createMaterial(pipelines.gBuffer, pipelineLayouts.gBuffer, "gbuffer");
 
 	// change vertex input attributes to empty for other pipelines (fullscreen quad drawn from vertex shader)
 	pipelineBuilder.vertexInputInfo.pVertexAttributeDescriptions = nullptr;
@@ -516,7 +517,7 @@ void App::initPipelines()
 	pipelineBuilder.rasterizer.cullMode = VK_CULL_MODE_FRONT_BIT;
 
 	// ssao
-	VkDescriptorSetLayout ssaoSetLayout[] = { descriptorSetLayouts.ssao };
+	VkDescriptorSetLayout ssaoSetLayout[] = { globalSetLayout, descriptorSetLayouts.ssao };
 	pipelineLayoutCI.setLayoutCount = std::size(ssaoSetLayout);
 	pipelineLayoutCI.pSetLayouts = ssaoSetLayout;
 	VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutCI, nullptr, &pipelineLayouts.ssao));
@@ -665,9 +666,9 @@ void App::initScene()
 	VkWriteDescriptorSet ssaoImg3 = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descriptorSets.ssao, &ssaoInfo3, 2);
 	
 	VkDescriptorBufferInfo ssaoUBOInfo = {};
-	ssaoUBOInfo.buffer = ssaoUBO.ssaoKernel.buffer;
+	ssaoUBOInfo.buffer = ssaoKernelBuffer_.buffer;
 	ssaoUBOInfo.offset = 0;
-	ssaoUBOInfo.range = SSAO_KERNEL_SIZE * sizeof(glm::vec4);
+	ssaoUBOInfo.range = sizeof(SSAOKernel);
 	VkWriteDescriptorSet ssaoBuf1 = VkInit::writeDescriptorBuffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptorSets.ssao, &ssaoUBOInfo, 3);
 
 	VkWriteDescriptorSet ssaoSetWrites[] = { ssaoImg1, ssaoImg2, ssaoImg3, ssaoBuf1 };
@@ -752,29 +753,64 @@ void App::draw()
 	VkCommandBufferBeginInfo cmdBeginInfo = VkInit::commandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 
-	// Clear values
-	// color of the screen (background)
-	VkClearValue clearValue;
-	clearValue.color = { 0.0f, 0.0f, 0.0f, 1.0f };
-	// depth
-	VkClearValue depthClear;
-	depthClear.depthStencil.depth = 1.f;
-	VkClearValue clearValues[] = { clearValue, depthClear };
+	{
+		std::vector<VkClearValue> clearValues(4);
+		clearValues[0].color = { {0.0f, 0.0f, 0.0f, 1.0f} };
+		clearValues[1].color = { {0.0f, 0.0f, 0.0f, 1.0f} };
+		clearValues[2].color = { {0.0f, 0.0f, 0.0f, 1.0f} };
+		clearValues[3].depthStencil = { 1.0f, 0 };
 
-	// Starting the renderpass
-	VkRenderPassBeginInfo renderPassInfo = VkInit::renderpassBeginInfo(renderPass, windowExtent, frameBuffers_[swapchainImageIndex]);
-	renderPassInfo.clearValueCount = 2;
-	renderPassInfo.pClearValues = &clearValues[0];
-	vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+		VkRenderPassBeginInfo renderPassBeginInfo = VkInit::renderpassBeginInfo(frameBuffers.gBuffer.renderPass, windowExtent, frameBuffers.gBuffer.framebuffer);
+		renderPassBeginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
+		renderPassBeginInfo.pClearValues = clearValues.data();
 
-	/* ----- RENDERING COMMANDS BEGIN ----- */
-	
-	drawObjects(cmd, renderables.data(), renderables.size());
+		vkCmdBeginRenderPass(cmd, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+		generateGBuffer(cmd, renderables[0]);
+		vkCmdEndRenderPass(cmd);
+	}
+	// ssao
+	{
+		std::vector<VkClearValue> clearValues(2);
+		clearValues[0].color = { { 0.0f, 0.0f, 0.0f, 1.0f } };
+		clearValues[1].depthStencil = { 1.0f, 0 };
 
-	/* ----- RENDERING COMMANDS END ----- */
+		VkRenderPassBeginInfo renderPassBeginInfo = VkInit::renderpassBeginInfo(frameBuffers.ssao.renderPass, windowExtent, frameBuffers.ssao.framebuffer);
+		renderPassBeginInfo.clearValueCount = 2;
+		renderPassBeginInfo.pClearValues = clearValues.data();
 
-	// Finalize render pass and command buffer
-	vkCmdEndRenderPass(cmd);
+		vkCmdBeginRenderPass(cmd, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+		int frameIndex = frameNumber % FRAME_OVERLAP;
+		uint32_t uniformOffset = padUniformBufferSize(sizeof(GPUSceneData)) * frameIndex;
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayouts.ssao,
+			0, 1, &getCurrentFrame().globalDescriptor, 1, &uniformOffset);
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayouts.ssao, 1, 1, &descriptorSets.ssao, 0, NULL);
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines.ssao);
+		vkCmdDraw(cmd, 3, 1, 0, 0);
+
+		vkCmdEndRenderPass(cmd);
+	}
+
+	// assembly
+	{
+		std::vector<VkClearValue> clearValues(2);
+		clearValues[0].color = { {0.0f, 0.0f, 0.5f, 1.0f} };
+		clearValues[1].depthStencil = { 1.0f, 0 };
+
+		VkRenderPassBeginInfo renderPassBeginInfo = VkInit::renderpassBeginInfo(frameBuffers.assembly.renderPass, windowExtent, frameBuffers.assembly.framebuffer[swapchainImageIndex]);
+		renderPassBeginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
+		renderPassBeginInfo.pClearValues = clearValues.data();
+
+		vkCmdBeginRenderPass(cmd, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayouts.assembly, 0, 1, &descriptorSets.assembly, 0, NULL);
+
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines.assembly);
+		vkCmdDraw(cmd, 3, 1, 0, 0);
+
+		vkCmdEndRenderPass(cmd);
+	}
+
 	VK_CHECK(vkEndCommandBuffer(cmd));
 
 	// submit image to the queue
@@ -1134,7 +1170,7 @@ void App::initDescriptors()
 	vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool);
 
 	// cam binding
-	VkDescriptorSetLayoutBinding camBinding = VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
+	VkDescriptorSetLayoutBinding camBinding = VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
 	// scene data binding
 	VkDescriptorSetLayoutBinding sceneBinding = VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 1);
 
@@ -1239,8 +1275,9 @@ void App::initDescriptors()
 		scale = 0.1f + (scale * scale) * (1.0f - 0.1f);
 		ssaoKernel[i] = glm::vec4(sample * scale, 0.0f);
 	}
-	ssaoUBO.ssaoKernel = createBuffer(
-		ssaoKernel.size() * sizeof(glm::vec4),
+	ssaoKernel_.kernel = ssaoKernel;
+	ssaoKernelBuffer_ = createBuffer(
+		sizeof(glm::vec4) * SSAO_KERNEL_SIZE,
 		VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 		VMA_MEMORY_USAGE_CPU_TO_GPU
 	);
@@ -1315,7 +1352,7 @@ void App::initDescriptors()
 	mainDeletionQueue.push_function([&]()
 		{
 			vmaDestroyBuffer(allocator, sceneParameterBuffer.buffer, sceneParameterBuffer.allocation);
-			vmaDestroyBuffer(allocator, ssaoUBO.ssaoKernel.buffer, ssaoUBO.ssaoKernel.allocation);
+			vmaDestroyBuffer(allocator, ssaoKernelBuffer_.buffer, ssaoKernelBuffer_.allocation);
 			vkDestroyImageView(device, ssaoNoiseUBO.texture.imageView, nullptr);
 			vkDestroyDescriptorSetLayout(device, objectSetLayout, nullptr);
 			vkDestroyDescriptorSetLayout(device, globalSetLayout, nullptr);
@@ -1660,14 +1697,82 @@ void App::initDeferredFramebuffers()
 		VK_CHECK(vkCreateRenderPass(device, &renderPassInfo, nullptr, &frameBuffers.assembly.renderPass));
 
 		VkFramebufferCreateInfo framebufferCI = VkInit::framebufferCreateInfo(frameBuffers.assembly.renderPass, windowExtent);
-		framebufferCI.pAttachments = &frameBuffers.assembly.color.imageView;
-		framebufferCI.attachmentCount = 1;
-		VK_CHECK(vkCreateFramebuffer(device, &framebufferCI, nullptr, &frameBuffers.assembly.framebuffer));
 
-		mainDeletionQueue.push_function([=]()
-			{
-				vkDestroyRenderPass(device, frameBuffers.assembly.renderPass, nullptr);
-				vkDestroyFramebuffer(device, frameBuffers.assembly.framebuffer, nullptr);
-			});
+		const size_t swapchainImageCount = swapchainImages.size();
+		frameBuffers.assembly.framebuffer = std::vector<VkFramebuffer>(swapchainImageCount);
+
+		for (unsigned int i = 0; i < swapchainImageCount; i++)
+		{
+			VkImageView attachment = swapchainImageViews[i];
+
+			framebufferCI.pAttachments = &attachment;
+			framebufferCI.attachmentCount = 1;
+			VK_CHECK(vkCreateFramebuffer(device, &framebufferCI, nullptr, &frameBuffers.assembly.framebuffer[i]));
+
+			mainDeletionQueue.push_function([=]()
+				{
+					vkDestroyFramebuffer(device, frameBuffers.assembly.framebuffer[i], nullptr);
+					vkDestroyImageView(device, swapchainImageViews[i], nullptr);
+				});
+		}
 	}
+}
+
+void App::generateGBuffer(VkCommandBuffer commandBuffer, RenderObject object)
+{
+	glm::vec3 camPos = { 0.f, 0.f, -3.f };
+	glm::mat4 view = glm::translate(glm::mat4(1.f), camPos);
+	glm::mat4 projection = glm::perspective(glm::radians(60.f), (float)windowExtent.width / windowExtent.height, 0.1f, 64.0f);
+	projection[1][1] *= -1;
+
+	// send camera data to uniform buffer
+	GPUCameraData camData;
+	camData.proj = projection;
+	camData.view = view;
+	camData.viewproj = projection * view;
+	void* data;
+	vmaMapMemory(allocator, getCurrentFrame().cameraBuffer.allocation, &data);
+	memcpy(data, &camData, sizeof(GPUCameraData));
+	vmaUnmapMemory(allocator, getCurrentFrame().cameraBuffer.allocation);
+
+	// allocating scene parameters
+	float d = (frameNumber / 144.f);
+	sceneParameters.ambientColor = { 0.03f, 0.03f , 0.03f, 1.f };
+	sceneParameters.lightPosition = { 10.f, 0.f, 3.f, 1.f };
+	sceneParameters.lightColor = { 150.f, 150.f, 150.f, 1.f };
+	char* sceneData;
+	vmaMapMemory(allocator, sceneParameterBuffer.allocation, (void**)&sceneData);
+	int frameIndex = frameNumber % FRAME_OVERLAP;
+	sceneData += padUniformBufferSize(sizeof(GPUSceneData)) * frameIndex;
+	memcpy(sceneData, &sceneParameters, sizeof(GPUSceneData));
+	vmaUnmapMemory(allocator, sceneParameterBuffer.allocation);
+
+	// allocating object buffer
+	void* objectData;
+	vmaMapMemory(allocator, getCurrentFrame().objectBuffer.allocation, &objectData);
+	GPUObjectData* objectSSBO = (GPUObjectData*)objectData;
+	objectSSBO->modelMatrix = object.transformMatrix;
+	objectSSBO->modelMatrix = glm::rotate(objectSSBO->modelMatrix, glm::radians(frameNumber * 0.10f), glm::vec3(0, 1, 0));
+	vmaUnmapMemory(allocator, getCurrentFrame().objectBuffer.allocation);
+
+	// allocate ssao parameters
+	void* ssaoKernelData;
+	vmaMapMemory(allocator, ssaoKernelBuffer_.allocation, &ssaoKernelData);
+	memcpy(ssaoKernelData, ssaoKernel_.kernel.data(), sizeof(glm::vec4) * SSAO_KERNEL_SIZE);
+	vmaUnmapMemory(allocator, ssaoKernelBuffer_.allocation);
+
+	uint32_t uniformOffset = padUniformBufferSize(sizeof(GPUSceneData)) * frameIndex;
+	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayouts.gBuffer,
+		0, 1, &getCurrentFrame().globalDescriptor, 1, &uniformOffset);
+	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayouts.gBuffer,
+		1, 1, &getCurrentFrame().objectDescriptor, 0, nullptr);
+	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayouts.gBuffer,
+		2, 1, &descriptorSets.gBuffer, 0, nullptr);
+
+	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines.gBuffer);
+
+	VkDeviceSize offset = 0;
+	vkCmdBindVertexBuffers(commandBuffer, 0, 1, &object.mesh->vertexBuffer.buffer, &offset);
+	vkCmdBindIndexBuffer(commandBuffer, object.mesh->indexBuffer.buffer, offset, VK_INDEX_TYPE_UINT32);
+	vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(object.mesh->indices.size()), 1, 0, 0, 0);
 }

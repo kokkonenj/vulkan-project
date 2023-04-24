@@ -128,7 +128,13 @@ struct
 		FrameBufferAttachment color;
 		VkFramebuffer framebuffer;
 		VkRenderPass renderPass;
-	} ssao, ssaoBlur, assembly;
+	} ssao, ssaoBlur;
+	struct
+	{
+		FrameBufferAttachment color;
+		std::vector<VkFramebuffer> framebuffer;
+		VkRenderPass renderPass;
+	} assembly;
 } frameBuffers;
 
 struct
@@ -163,10 +169,10 @@ struct
 	VkDescriptorSetLayout assembly;
 } descriptorSetLayouts;
 
-struct
+struct SSAOKernel
 {
-	AllocatedBuffer ssaoKernel;
-} ssaoUBO;
+	std::vector<glm::vec4> kernel;
+};
 
 struct
 {
@@ -225,6 +231,9 @@ private:
 	std::unordered_map<std::string, Texture> loadedTextures;
 	std::unordered_map<std::string, PBRMaterial> loadedPBRMaterials;
 
+	SSAOKernel ssaoKernel_;
+	AllocatedBuffer ssaoKernelBuffer_;
+
 	// depth resources
 	VkImageView depthImageView;
 	AllocatedImage depthImage;
@@ -277,4 +286,5 @@ private:
 
 	void createAttachment(VkFormat format, VkImageUsageFlagBits usage, FrameBufferAttachment* attachment);
 	void initDeferredFramebuffers();
+	void generateGBuffer(VkCommandBuffer commandBuffer, RenderObject object);
 };
