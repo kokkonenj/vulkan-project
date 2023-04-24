@@ -15,10 +15,12 @@ void main()
 	vec3 fragPos = texture(samplerposition, inUV).rgb;
 	vec3 normal = normalize(texture(samplerNormal, inUV).rgb * 2.0 - 1.0);
 	vec4 albedo = texture(samplerAlbedo, inUV);
+	float ssao = texture(samplerSSAOBlur, inUV).r;
 
 	vec3 lightPos = vec3(5.0, 0.0, 0.0);
 	vec3 L = normalize(lightPos - fragPos);
 	float NdotL = max(0.5, dot(normal, L));
 
 	outFragColor.rgb = albedo.rgb * NdotL;
+	outFragColor.rgb *= ssao.rrr;
 }
