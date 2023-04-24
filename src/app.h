@@ -108,7 +108,75 @@ struct UploadContext
 	VkCommandBuffer commandBuffer;
 };
 
-constexpr unsigned int FRAME_OVERLAP = 2;
+struct FrameBufferAttachment
+{
+	AllocatedImage image;
+	VkImageView imageView;
+	VkFormat format;
+};
+
+struct
+{
+	struct
+	{
+		FrameBufferAttachment position, normal, albedo, depth;
+		VkFramebuffer framebuffer;
+		VkRenderPass renderPass;
+	} gBuffer;
+	struct
+	{
+		FrameBufferAttachment color;
+		VkFramebuffer framebuffer;
+		VkRenderPass renderPass;
+	} ssao, ssaoBlur, assembly;
+} frameBuffers;
+
+struct
+{
+	VkPipeline gBuffer;
+	VkPipeline ssao;
+	VkPipeline ssaoBlur;
+	VkPipeline assembly;
+} pipelines;
+
+struct
+{
+	VkPipelineLayout gBuffer;
+	VkPipelineLayout ssao;
+	VkPipelineLayout ssaoBlur;
+	VkPipelineLayout assembly;
+} pipelineLayouts;
+
+struct
+{
+	VkDescriptorSet gBuffer;
+	VkDescriptorSet ssao;
+	VkDescriptorSet ssaoBlur;
+	VkDescriptorSet assembly;
+} descriptorSets;
+
+struct
+{
+	VkDescriptorSetLayout gBuffer;
+	VkDescriptorSetLayout ssao;
+	VkDescriptorSetLayout ssaoBlur;
+	VkDescriptorSetLayout assembly;
+} descriptorSetLayouts;
+
+struct
+{
+	AllocatedBuffer ssaoKernel;
+} ssaoUBO;
+
+struct
+{
+	Texture texture;
+} ssaoNoiseUBO;
+
+constexpr unsigned int FRAME_OVERLAP = 1;
+constexpr unsigned int SSAO_KERNEL_SIZE = 64;
+constexpr unsigned int SSAO_NOISE_DIM = 4;
+constexpr float SSAO_RADIUS = 0.3f;
 
 class App {
 public:
@@ -146,7 +214,7 @@ private:
 	uint32_t graphicsQueueFamily;
 
 	VkRenderPass renderPass;
-	std::vector<VkFramebuffer> frameBuffers;
+	std::vector<VkFramebuffer> frameBuffers_;
 
 	// rendering
 	std::vector<RenderObject> renderables;
@@ -206,4 +274,7 @@ private:
 
 	void initDescriptors();
 	size_t padUniformBufferSize(size_t originalSize);
+
+	void createAttachment(VkFormat format, VkImageUsageFlagBits usage, FrameBufferAttachment* attachment);
+	void initDeferredFramebuffers();
 };
