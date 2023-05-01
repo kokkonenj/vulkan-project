@@ -108,81 +108,7 @@ struct UploadContext
 	VkCommandBuffer commandBuffer;
 };
 
-struct FrameBufferAttachment
-{
-	AllocatedImage image;
-	VkImageView imageView;
-	VkFormat format;
-};
-
-struct
-{
-	struct
-	{
-		FrameBufferAttachment position, normal, albedo, depth;
-		VkFramebuffer framebuffer;
-		VkRenderPass renderPass;
-	} gBuffer;
-	struct
-	{
-		FrameBufferAttachment color;
-		VkFramebuffer framebuffer;
-		VkRenderPass renderPass;
-	} ssao, ssaoBlur;
-	struct
-	{
-		FrameBufferAttachment color;
-		std::vector<VkFramebuffer> framebuffer;
-		VkRenderPass renderPass;
-	} assembly;
-} frameBuffers;
-
-struct
-{
-	VkPipeline gBuffer;
-	VkPipeline ssao;
-	VkPipeline ssaoBlur;
-	VkPipeline assembly;
-} pipelines;
-
-struct
-{
-	VkPipelineLayout gBuffer;
-	VkPipelineLayout ssao;
-	VkPipelineLayout ssaoBlur;
-	VkPipelineLayout assembly;
-} pipelineLayouts;
-
-struct
-{
-	VkDescriptorSet gBuffer;
-	VkDescriptorSet ssao;
-	VkDescriptorSet ssaoBlur;
-	VkDescriptorSet assembly;
-} descriptorSets;
-
-struct
-{
-	VkDescriptorSetLayout gBuffer;
-	VkDescriptorSetLayout ssao;
-	VkDescriptorSetLayout ssaoBlur;
-	VkDescriptorSetLayout assembly;
-} descriptorSetLayouts;
-
-struct SSAOKernel
-{
-	std::vector<glm::vec4> kernel;
-};
-
-struct
-{
-	Texture texture;
-} ssaoNoiseUBO;
-
-constexpr unsigned int FRAME_OVERLAP = 1;
-constexpr unsigned int SSAO_KERNEL_SIZE = 64;
-constexpr unsigned int SSAO_NOISE_DIM = 4;
-constexpr float SSAO_RADIUS = 0.3f;
+constexpr unsigned int FRAME_OVERLAP = 2;
 
 class App {
 public:
@@ -220,7 +146,7 @@ private:
 	uint32_t graphicsQueueFamily;
 
 	VkRenderPass renderPass;
-	std::vector<VkFramebuffer> frameBuffers_;
+	std::vector<VkFramebuffer> frameBuffers;
 
 	// rendering
 	std::vector<RenderObject> renderables;
@@ -230,9 +156,6 @@ private:
 	AllocatedBuffer sceneParameterBuffer;
 	std::unordered_map<std::string, Texture> loadedTextures;
 	std::unordered_map<std::string, PBRMaterial> loadedPBRMaterials;
-
-	SSAOKernel ssaoKernel_;
-	AllocatedBuffer ssaoKernelBuffer_;
 
 	// depth resources
 	VkImageView depthImageView;
@@ -283,8 +206,4 @@ private:
 
 	void initDescriptors();
 	size_t padUniformBufferSize(size_t originalSize);
-
-	void createAttachment(VkFormat format, VkImageUsageFlagBits usage, FrameBufferAttachment* attachment);
-	void initDeferredFramebuffers();
-	void generateGBuffer(VkCommandBuffer commandBuffer, RenderObject object);
 };

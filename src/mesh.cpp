@@ -143,8 +143,8 @@ bool Mesh::loadFromObj(const char* filename)
 				newVertex.uv.x = ux;
 				newVertex.uv.y = 1-uy;
 
-				// set color as offwhite for now
-				newVertex.color = glm::vec3(0.95f, 0.95f, 1.0f);
+				// set color as normal color for now
+				newVertex.color = glm::vec3(0.2f, 0.0f, 0.0f);
 
 				// save into buffers
 				auto res = uniqueVertices.insert({newVertex, static_cast<uint32_t>(vertices.size())});

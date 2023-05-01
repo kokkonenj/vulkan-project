@@ -4,9 +4,7 @@
 #include <VkBootstrap.h>
 #include <iostream>
 #include <fstream>
-#include <array>
 #include "vk_textures.h"
-#include <random>
 
 #define VMA_IMPLEMENTATION
 #include "vk_mem_alloc.h"
@@ -45,7 +43,6 @@ App::App()
 	initCommands();
 	initDefaultRenderpass();
 	initFramebuffers();
-	initDeferredFramebuffers();
 	initSyncStructures();
 	initDescriptors();
 	initPipelines();
@@ -141,8 +138,6 @@ void App::initVulkan()
 	else if (counts & VK_SAMPLE_COUNT_4_BIT) { msaaSamples = VK_SAMPLE_COUNT_4_BIT; }
 	else if (counts & VK_SAMPLE_COUNT_2_BIT) { msaaSamples = VK_SAMPLE_COUNT_2_BIT; }
 	else { msaaSamples = VK_SAMPLE_COUNT_1_BIT; }
-	// disable MSAA for deffered rendering for SSAO
-	msaaSamples = VK_SAMPLE_COUNT_1_BIT;
 	std::cout << "Rendering with " << msaaSamples << "x MSAA" << std::endl;
 }
 
@@ -246,7 +241,7 @@ void App::initDefaultRenderpass()
 	colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	colorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
 	VkAttachmentReference colorAttatchmentReference = {};
 	colorAttatchmentReference.attachment = 0;
@@ -289,6 +284,7 @@ void App::initDefaultRenderpass()
 	subpass.colorAttachmentCount = 1;
 	subpass.pColorAttachments = &colorAttatchmentReference;
 	subpass.pDepthStencilAttachment = &depthAttachmentReference;
+	subpass.pResolveAttachments = &colorATtachmentResolveReference;
 
 	VkSubpassDependency dependency = {};
 	dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
@@ -310,11 +306,11 @@ void App::initDefaultRenderpass()
 	VkSubpassDependency dependencies[2] = { dependency, depthDependency };
 
 	// attachments array
-	VkAttachmentDescription attachments[2] = { colorAttachment, depthAttachment };
+	VkAttachmentDescription attachments[3] = { colorAttachment, depthAttachment, colorAttachmentResolve };
 
 	VkRenderPassCreateInfo renderPassInfo = {};
 	renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	renderPassInfo.attachmentCount = 2;
+	renderPassInfo.attachmentCount = 3;
 	renderPassInfo.pAttachments = &attachments[0];
 	renderPassInfo.subpassCount = 1;
 	renderPassInfo.pSubpasses = &subpass;
@@ -331,7 +327,6 @@ void App::initDefaultRenderpass()
 
 void App::initFramebuffers()
 {
-	// original pbr
 	VkFramebufferCreateInfo frameBufferInfo = {};
 	frameBufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 	frameBufferInfo.pNext = nullptr;
@@ -342,19 +337,19 @@ void App::initFramebuffers()
 	frameBufferInfo.layers = 1;
 
 	const size_t swapchainImageCount = swapchainImages.size();
-	frameBuffers_ = std::vector<VkFramebuffer>(swapchainImageCount);
+	frameBuffers = std::vector<VkFramebuffer>(swapchainImageCount);
 
 	for (unsigned int i = 0; i < swapchainImageCount; i++)
 	{
-		VkImageView attachments[2] = { swapchainImageViews[i], depthImageView };
+		VkImageView attachments[3] = { colorImageView, depthImageView, swapchainImageViews[i] };
 
 		frameBufferInfo.pAttachments = attachments;
-		frameBufferInfo.attachmentCount = 2;
-		VK_CHECK(vkCreateFramebuffer(device, &frameBufferInfo, nullptr, &frameBuffers_[i]));
+		frameBufferInfo.attachmentCount = 3;
+		VK_CHECK(vkCreateFramebuffer(device, &frameBufferInfo, nullptr, &frameBuffers[i]));
 
 		mainDeletionQueue.push_function([=]()
 			{
-				vkDestroyFramebuffer(device, frameBuffers_[i], nullptr);
+				vkDestroyFramebuffer(device, frameBuffers[i], nullptr);
 				vkDestroyImageView(device, swapchainImageViews[i], nullptr);
 			});
 	}
@@ -460,118 +455,6 @@ void App::initPipelines()
 		vkDestroyPipeline(device, PBRPipeline, nullptr);
 		vkDestroyPipelineLayout(device, pbrPipelineLayout, nullptr);
 		});
-
-	/* --- SSAO ---*/
-	// download shader modules
-	VkShaderModule gBufferVert;
-	if (!loadShaderModule("../../shaders/gbuffer.vert.spv", &gBufferVert))
-	{
-		std::cout << "Error loading gbuffer vert shader" << std::endl;
-	}
-	VkShaderModule gBufferFrag;
-	if (!loadShaderModule("../../shaders/gbuffer.frag.spv", &gBufferFrag))
-	{
-		std::cout << "Error loading gbuffer frag shader" << std::endl;
-	}
-	VkShaderModule fullscreenQuad;
-	if (!loadShaderModule("../../shaders/quad.vert.spv", &fullscreenQuad))
-	{
-		std::cout << "Error loading quad vert shader" << std::endl;
-	}
-	VkShaderModule ssaoFrag;
-	if (!loadShaderModule("../../shaders/ssao.frag.spv", &ssaoFrag))
-	{
-		std::cout << "Error loading ssao frag shader" << std::endl;
-	}
-	VkShaderModule ssaoBlurFrag;
-	if (!loadShaderModule("../../shaders/ssaoblur.frag.spv", &ssaoBlurFrag))
-	{
-		std::cout << "Error loading ssao blur frag shader" << std::endl;
-	}
-	VkShaderModule assemblyFrag;
-	if (!loadShaderModule("../../shaders/assembly.frag.spv", &assemblyFrag))
-	{
-		std::cout << "Error loading assembly frag shader" << std::endl;
-	}
-
-	// gbuffer
-	VkPipelineLayoutCreateInfo pipelineLayoutCI = VkInit::pipelineLayoutCreateInfo();
-	VkDescriptorSetLayout gBufferSetLayout[] = { globalSetLayout, objectSetLayout, descriptorSetLayouts.gBuffer };
-	pipelineLayoutCI.setLayoutCount = std::size(gBufferSetLayout);
-	pipelineLayoutCI.pSetLayouts = gBufferSetLayout;
-	VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutCI, nullptr, &pipelineLayouts.gBuffer));
-	pipelineBuilder.shaderStages.clear();
-	pipelineBuilder.shaderStages.push_back(
-		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_VERTEX_BIT, gBufferVert));
-	pipelineBuilder.shaderStages.push_back(
-		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_FRAGMENT_BIT, gBufferFrag));
-	pipelineBuilder.pipelineLayout = pipelineLayouts.gBuffer;
-	pipelines.gBuffer = pipelineBuilder.buildPipeline(device, frameBuffers.gBuffer.renderPass);
-	createMaterial(pipelines.gBuffer, pipelineLayouts.gBuffer, "gbuffer");
-
-	// change vertex input attributes to empty for other pipelines (fullscreen quad drawn from vertex shader)
-	pipelineBuilder.vertexInputInfo.pVertexAttributeDescriptions = nullptr;
-	pipelineBuilder.vertexInputInfo.vertexAttributeDescriptionCount = 0;
-	pipelineBuilder.vertexInputInfo.pVertexBindingDescriptions = nullptr;
-	pipelineBuilder.vertexInputInfo.vertexBindingDescriptionCount = 0;
-	pipelineBuilder.rasterizer.cullMode = VK_CULL_MODE_FRONT_BIT;
-
-	// ssao
-	VkDescriptorSetLayout ssaoSetLayout[] = { globalSetLayout, descriptorSetLayouts.ssao };
-	pipelineLayoutCI.setLayoutCount = std::size(ssaoSetLayout);
-	pipelineLayoutCI.pSetLayouts = ssaoSetLayout;
-	VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutCI, nullptr, &pipelineLayouts.ssao));
-	pipelineBuilder.shaderStages.clear();
-	pipelineBuilder.shaderStages.push_back(
-		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_VERTEX_BIT, fullscreenQuad));
-	pipelineBuilder.shaderStages.push_back(
-		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_FRAGMENT_BIT, ssaoFrag));
-	pipelineBuilder.pipelineLayout = pipelineLayouts.ssao;
-	pipelines.ssao = pipelineBuilder.buildPipeline(device, frameBuffers.ssao.renderPass);
-
-	// ssao blur
-	VkDescriptorSetLayout ssaoBlurSetLayout[] = { descriptorSetLayouts.ssaoBlur };
-	pipelineLayoutCI.setLayoutCount = std::size(ssaoBlurSetLayout);
-	pipelineLayoutCI.pSetLayouts = ssaoBlurSetLayout;
-	VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutCI, nullptr, &pipelineLayouts.ssaoBlur));
-	pipelineBuilder.shaderStages.clear();
-	pipelineBuilder.shaderStages.push_back(
-		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_VERTEX_BIT, fullscreenQuad));
-	pipelineBuilder.shaderStages.push_back(
-		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_FRAGMENT_BIT, ssaoBlurFrag));
-	pipelineBuilder.pipelineLayout = pipelineLayouts.ssaoBlur;
-	pipelines.ssaoBlur = pipelineBuilder.buildPipeline(device, frameBuffers.ssaoBlur.renderPass);
-
-	// assembly
-	VkDescriptorSetLayout assemblySetLayout[] = { descriptorSetLayouts.assembly };
-	pipelineLayoutCI.setLayoutCount = std::size(assemblySetLayout);
-	pipelineLayoutCI.pSetLayouts = assemblySetLayout;
-	VK_CHECK(vkCreatePipelineLayout(device, &pipelineLayoutCI, nullptr, &pipelineLayouts.assembly));
-	pipelineBuilder.shaderStages.clear();
-	pipelineBuilder.shaderStages.push_back(
-		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_VERTEX_BIT, fullscreenQuad));
-	pipelineBuilder.shaderStages.push_back(
-		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_FRAGMENT_BIT, assemblyFrag));
-	pipelineBuilder.pipelineLayout = pipelineLayouts.assembly;
-	pipelines.assembly = pipelineBuilder.buildPipeline(device, frameBuffers.assembly.renderPass);
-
-	// cleanup
-	vkDestroyShaderModule(device, gBufferVert, nullptr);
-	vkDestroyShaderModule(device, gBufferFrag, nullptr);
-	vkDestroyShaderModule(device, fullscreenQuad, nullptr);
-	vkDestroyShaderModule(device, ssaoFrag, nullptr);
-	vkDestroyShaderModule(device, ssaoBlurFrag, nullptr);
-	vkDestroyShaderModule(device, assemblyFrag, nullptr);
-	mainDeletionQueue.push_function([=]() {
-		vkDestroyPipeline(device, pipelines.gBuffer, nullptr);
-		vkDestroyPipelineLayout(device, pipelineLayouts.gBuffer, nullptr);
-		vkDestroyPipeline(device, pipelines.ssao, nullptr);
-		vkDestroyPipelineLayout(device, pipelineLayouts.ssao, nullptr);
-		vkDestroyPipeline(device, pipelines.ssaoBlur, nullptr);
-		vkDestroyPipelineLayout(device, pipelineLayouts.ssaoBlur, nullptr);
-		vkDestroyPipeline(device, pipelines.assembly, nullptr);
-		vkDestroyPipelineLayout(device, pipelineLayouts.assembly, nullptr);
-		});
 }
 
 void App::initScene()
@@ -631,101 +514,9 @@ void App::initScene()
 	VkWriteDescriptorSet setWrites[] = { albedo, metallic, roughness, normal, ao };
 	vkUpdateDescriptorSets(device, 5, setWrites, 0, nullptr);
 
-	// color sampler for deferred rendering
-	VkSampler colorSampler;
-	VkSamplerCreateInfo colorSamplerInfo = VkInit::samplerCreateInfo(VK_FILTER_NEAREST, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
-	colorSamplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_WHITE;
-	VK_CHECK(vkCreateSampler(device, &colorSamplerInfo, nullptr, &colorSampler));
-
-	// gbuffer
-	allocInfo.pSetLayouts = &descriptorSetLayouts.gBuffer;
-	VK_CHECK(vkAllocateDescriptorSets(device, &allocInfo, &descriptorSets.gBuffer));
-	VkWriteDescriptorSet gbuffer = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descriptorSets.gBuffer, &albedoImageInfo, 0);
-	vkUpdateDescriptorSets(device, 1, &gbuffer, 0, nullptr);
-
-	// ssao
-	allocInfo.pSetLayouts = &descriptorSetLayouts.ssao;
-	VK_CHECK(vkAllocateDescriptorSets(device, &allocInfo, &descriptorSets.ssao));
-
-	VkDescriptorImageInfo ssaoInfo1 = {};
-	ssaoInfo1.sampler = colorSampler;
-	ssaoInfo1.imageView = frameBuffers.gBuffer.position.imageView;
-	ssaoInfo1.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	VkWriteDescriptorSet ssaoImg1 = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descriptorSets.ssao, &ssaoInfo1, 0);
-	
-	VkDescriptorImageInfo ssaoInfo2 = {};
-	ssaoInfo2.sampler = colorSampler;
-	ssaoInfo2.imageView = frameBuffers.gBuffer.normal.imageView;
-	ssaoInfo2.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	VkWriteDescriptorSet ssaoImg2 = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descriptorSets.ssao, &ssaoInfo2, 1);
-
-	VkDescriptorImageInfo ssaoInfo3 = {};
-	ssaoInfo3.sampler = colorSampler;
-	ssaoInfo3.imageView = ssaoNoiseUBO.texture.imageView;
-	ssaoInfo3.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	VkWriteDescriptorSet ssaoImg3 = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descriptorSets.ssao, &ssaoInfo3, 2);
-	
-	VkDescriptorBufferInfo ssaoUBOInfo = {};
-	ssaoUBOInfo.buffer = ssaoKernelBuffer_.buffer;
-	ssaoUBOInfo.offset = 0;
-	ssaoUBOInfo.range = sizeof(SSAOKernel);
-	VkWriteDescriptorSet ssaoBuf1 = VkInit::writeDescriptorBuffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptorSets.ssao, &ssaoUBOInfo, 3);
-
-	VkWriteDescriptorSet ssaoSetWrites[] = { ssaoImg1, ssaoImg2, ssaoImg3, ssaoBuf1 };
-	vkUpdateDescriptorSets(device, 4, ssaoSetWrites, 0, nullptr);
-
-	// ssao blur
-	allocInfo.pSetLayouts = &descriptorSetLayouts.ssaoBlur;
-	VK_CHECK(vkAllocateDescriptorSets(device, &allocInfo, &descriptorSets.ssaoBlur));
-
-	VkDescriptorImageInfo ssaoBlurInfo = {};
-	ssaoBlurInfo.sampler = colorSampler;
-	ssaoBlurInfo.imageView = frameBuffers.ssao.color.imageView;
-	ssaoBlurInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	VkWriteDescriptorSet ssaoBlur = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descriptorSets.ssaoBlur, &ssaoBlurInfo, 0);
-	vkUpdateDescriptorSets(device, 1, &ssaoBlur, 0, nullptr);
-
-	// assembly
-	allocInfo.pSetLayouts = &descriptorSetLayouts.assembly;
-	VK_CHECK(vkAllocateDescriptorSets(device, &allocInfo, &descriptorSets.assembly));
-
-	VkDescriptorImageInfo assemblyInfo1 = {};
-	assemblyInfo1.sampler = colorSampler;
-	assemblyInfo1.imageView = frameBuffers.gBuffer.position.imageView;
-	assemblyInfo1.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	VkWriteDescriptorSet assemblyImg1 = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descriptorSets.assembly, &assemblyInfo1, 0);
-
-	VkDescriptorImageInfo assemblyInfo2 = {};
-	assemblyInfo2.sampler = colorSampler;
-	assemblyInfo2.imageView = frameBuffers.gBuffer.normal.imageView;
-	assemblyInfo2.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	VkWriteDescriptorSet assemblyImg2 = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descriptorSets.assembly, &assemblyInfo2, 1);
-
-	VkDescriptorImageInfo assemblyInfo3 = {};
-	assemblyInfo3.sampler = colorSampler;
-	assemblyInfo3.imageView = frameBuffers.gBuffer.albedo.imageView;
-	assemblyInfo3.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	VkWriteDescriptorSet assemblyImg3 = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descriptorSets.assembly, &assemblyInfo3, 2);
-
-	VkDescriptorImageInfo assemblyInfo4 = {};
-	assemblyInfo4.sampler = colorSampler;
-	assemblyInfo4.imageView = frameBuffers.ssao.color.imageView;
-	assemblyInfo4.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	VkWriteDescriptorSet assemblyImg4 = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descriptorSets.assembly, &assemblyInfo4, 3);
-
-	VkDescriptorImageInfo assemblyInfo5 = {};
-	assemblyInfo5.sampler = colorSampler;
-	assemblyInfo5.imageView = frameBuffers.ssaoBlur.color.imageView;
-	assemblyInfo5.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	VkWriteDescriptorSet assemblyImg5 = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descriptorSets.assembly, &assemblyInfo5, 4);
-
-	VkWriteDescriptorSet assemblySetWrites[] = { assemblyImg1, assemblyImg2, assemblyImg3, assemblyImg4, assemblyImg5 };
-	vkUpdateDescriptorSets(device, 5, assemblySetWrites, 0, nullptr);
-
 	mainDeletionQueue.push_function([=]()
 		{
 			vkDestroySampler(device, linearSampler, nullptr);
-			vkDestroySampler(device, colorSampler, nullptr);
 		});
 }
 
@@ -753,64 +544,29 @@ void App::draw()
 	VkCommandBufferBeginInfo cmdBeginInfo = VkInit::commandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 
-	{
-		std::vector<VkClearValue> clearValues(4);
-		clearValues[0].color = { {0.0f, 0.0f, 0.0f, 1.0f} };
-		clearValues[1].color = { {0.0f, 0.0f, 0.0f, 1.0f} };
-		clearValues[2].color = { {0.0f, 0.0f, 0.0f, 1.0f} };
-		clearValues[3].depthStencil = { 1.0f, 0 };
+	// Clear values
+	// color of the screen (background)
+	VkClearValue clearValue;
+	clearValue.color = { 0.0f, 0.0f, 0.0f, 1.0f };
+	// depth
+	VkClearValue depthClear;
+	depthClear.depthStencil.depth = 1.f;
+	VkClearValue clearValues[] = { clearValue, depthClear };
 
-		VkRenderPassBeginInfo renderPassBeginInfo = VkInit::renderpassBeginInfo(frameBuffers.gBuffer.renderPass, windowExtent, frameBuffers.gBuffer.framebuffer);
-		renderPassBeginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
-		renderPassBeginInfo.pClearValues = clearValues.data();
+	// Starting the renderpass
+	VkRenderPassBeginInfo renderPassInfo = VkInit::renderpassBeginInfo(renderPass, windowExtent, frameBuffers[swapchainImageIndex]);
+	renderPassInfo.clearValueCount = 2;
+	renderPassInfo.pClearValues = &clearValues[0];
+	vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-		vkCmdBeginRenderPass(cmd, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
-		generateGBuffer(cmd, renderables[0]);
-		vkCmdEndRenderPass(cmd);
-	}
-	// ssao
-	{
-		std::vector<VkClearValue> clearValues(2);
-		clearValues[0].color = { { 0.0f, 0.0f, 0.0f, 1.0f } };
-		clearValues[1].depthStencil = { 1.0f, 0 };
+	/* ----- RENDERING COMMANDS BEGIN ----- */
+	
+	drawObjects(cmd, renderables.data(), renderables.size());
 
-		VkRenderPassBeginInfo renderPassBeginInfo = VkInit::renderpassBeginInfo(frameBuffers.ssao.renderPass, windowExtent, frameBuffers.ssao.framebuffer);
-		renderPassBeginInfo.clearValueCount = 2;
-		renderPassBeginInfo.pClearValues = clearValues.data();
+	/* ----- RENDERING COMMANDS END ----- */
 
-		vkCmdBeginRenderPass(cmd, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-		int frameIndex = frameNumber % FRAME_OVERLAP;
-		uint32_t uniformOffset = padUniformBufferSize(sizeof(GPUSceneData)) * frameIndex;
-		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayouts.ssao,
-			0, 1, &getCurrentFrame().globalDescriptor, 1, &uniformOffset);
-		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayouts.ssao, 1, 1, &descriptorSets.ssao, 0, NULL);
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines.ssao);
-		vkCmdDraw(cmd, 3, 1, 0, 0);
-
-		vkCmdEndRenderPass(cmd);
-	}
-
-	// assembly
-	{
-		std::vector<VkClearValue> clearValues(2);
-		clearValues[0].color = { {0.0f, 0.0f, 0.5f, 1.0f} };
-		clearValues[1].depthStencil = { 1.0f, 0 };
-
-		VkRenderPassBeginInfo renderPassBeginInfo = VkInit::renderpassBeginInfo(frameBuffers.assembly.renderPass, windowExtent, frameBuffers.assembly.framebuffer[swapchainImageIndex]);
-		renderPassBeginInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
-		renderPassBeginInfo.pClearValues = clearValues.data();
-
-		vkCmdBeginRenderPass(cmd, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayouts.assembly, 0, 1, &descriptorSets.assembly, 0, NULL);
-
-		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines.assembly);
-		vkCmdDraw(cmd, 3, 1, 0, 0);
-
-		vkCmdEndRenderPass(cmd);
-	}
-
+	// Finalize render pass and command buffer
+	vkCmdEndRenderPass(cmd);
 	VK_CHECK(vkEndCommandBuffer(cmd));
 
 	// submit image to the queue
@@ -1156,7 +912,7 @@ void App::initDescriptors()
 		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 10},
 		{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 10},
 		{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 10},
-		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 20}
+		{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 10}
 	};
 
 	// descriptor pool creation
@@ -1170,7 +926,7 @@ void App::initDescriptors()
 	vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool);
 
 	// cam binding
-	VkDescriptorSetLayoutBinding camBinding = VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+	VkDescriptorSetLayoutBinding camBinding = VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
 	// scene data binding
 	VkDescriptorSetLayoutBinding sceneBinding = VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 1);
 
@@ -1208,89 +964,6 @@ void App::initDescriptors()
 	set4info.flags = 0;
 	set4info.pBindings = pbrBindings;
 	vkCreateDescriptorSetLayout(device, &set4info, nullptr, &PBRSetLayout);
-
-	// gbuffer binding
-	VkDescriptorSetLayoutBinding gbufferAlbedoBinding = VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-	VkDescriptorSetLayoutCreateInfo gbufferSet2Info = {};
-	gbufferSet2Info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-	gbufferSet2Info.pNext = nullptr;
-	gbufferSet2Info.bindingCount = 1;
-	gbufferSet2Info.flags = 0;
-	gbufferSet2Info.pBindings = &gbufferAlbedoBinding;
-	VK_CHECK(vkCreateDescriptorSetLayout(device, &gbufferSet2Info, nullptr, &descriptorSetLayouts.gBuffer));
-
-	// ssao binding
-	VkDescriptorSetLayoutBinding ssaoBindings[] = {
-		VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0),
-		VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1),
-		VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 2),
-		VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 3)
-	};
-	VkDescriptorSetLayoutCreateInfo ssaoSet2Info = {};
-	ssaoSet2Info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-	ssaoSet2Info.pNext = nullptr;
-	ssaoSet2Info.bindingCount = 4;
-	ssaoSet2Info.flags = 0;
-	ssaoSet2Info.pBindings = ssaoBindings;
-	VK_CHECK(vkCreateDescriptorSetLayout(device, &ssaoSet2Info, nullptr, &descriptorSetLayouts.ssao));
-
-	// ssao blur binding
-	VkDescriptorSetLayoutBinding ssaoBlurBindings[] = {
-		VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0)
-	};
-	VkDescriptorSetLayoutCreateInfo ssaoBlurInfo = {};
-	ssaoBlurInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-	ssaoBlurInfo.pNext = nullptr;
-	ssaoBlurInfo.bindingCount = 1;
-	ssaoBlurInfo.flags = 0;
-	ssaoBlurInfo.pBindings = ssaoBlurBindings;
-	VK_CHECK(vkCreateDescriptorSetLayout(device, &ssaoBlurInfo, nullptr, &descriptorSetLayouts.ssaoBlur));
-
-	// assembly binding
-	VkDescriptorSetLayoutBinding assemblyBindings[] = {
-		VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0),
-		VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1),
-		VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 2),
-		VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 3),
-		VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 4)
-	};
-	VkDescriptorSetLayoutCreateInfo assemblyInfo = {};
-	assemblyInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-	assemblyInfo.pNext = nullptr;
-	assemblyInfo.bindingCount = 5;
-	assemblyInfo.flags = 0;
-	assemblyInfo.pBindings = assemblyBindings;
-	VK_CHECK(vkCreateDescriptorSetLayout(device, &assemblyInfo, nullptr, &descriptorSetLayouts.assembly));
-
-	// create ssao kernel and upload as UBO
-	std::default_random_engine rndEngine((unsigned)time);
-	std::uniform_real_distribution<float> rndDist(0.0f, 1.0f);
-	std::vector<glm::vec4> ssaoKernel(SSAO_KERNEL_SIZE);
-	for (uint32_t i = 0; i < SSAO_KERNEL_SIZE; i++)
-	{
-		glm::vec3 sample(rndDist(rndEngine) * 2.0 - 1.0, rndDist(rndEngine) * 2.0 - 1.0, rndDist(rndEngine));
-		sample = glm::normalize(sample);
-		sample *= rndDist(rndEngine);
-		float scale = float(i) / float(SSAO_KERNEL_SIZE);
-		scale = 0.1f + (scale * scale) * (1.0f - 0.1f);
-		ssaoKernel[i] = glm::vec4(sample * scale, 0.0f);
-	}
-	ssaoKernel_.kernel = ssaoKernel;
-	ssaoKernelBuffer_ = createBuffer(
-		sizeof(glm::vec4) * SSAO_KERNEL_SIZE,
-		VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-		VMA_MEMORY_USAGE_CPU_TO_GPU
-	);
-
-	// generate random ssao blur
-	std::vector<glm::vec4> ssaoNoise(SSAO_NOISE_DIM * SSAO_NOISE_DIM);
-	for (uint32_t i = 0; i < static_cast<uint32_t>(ssaoNoise.size()); i++)
-	{
-		ssaoNoise[i] = glm::vec4(rndDist(rndEngine) * 2.0f - 1.0f, rndDist(rndEngine) * 2.0f - 1.0f, 0.0f, 0.0f);
-	}
-	utils::loadImageFromBuffer(this, static_cast<void*>(ssaoNoise.data()), ssaoNoiseUBO.texture.image, VK_FORMAT_R32G32B32A32_SFLOAT, SSAO_NOISE_DIM, SSAO_NOISE_DIM);
-	VkImageViewCreateInfo noiseImgInfo = VkInit::imageviewCreateInfo(VK_FORMAT_R32G32B32A32_SFLOAT, ssaoNoiseUBO.texture.image.image, VK_IMAGE_ASPECT_COLOR_BIT);
-	vkCreateImageView(device, &noiseImgInfo, nullptr, &ssaoNoiseUBO.texture.imageView);
 
 	const size_t sceneParameterBufferSize = FRAME_OVERLAP * padUniformBufferSize(sizeof(GPUSceneData));
 	sceneParameterBuffer = createBuffer(sceneParameterBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
@@ -1352,15 +1025,9 @@ void App::initDescriptors()
 	mainDeletionQueue.push_function([&]()
 		{
 			vmaDestroyBuffer(allocator, sceneParameterBuffer.buffer, sceneParameterBuffer.allocation);
-			vmaDestroyBuffer(allocator, ssaoKernelBuffer_.buffer, ssaoKernelBuffer_.allocation);
-			vkDestroyImageView(device, ssaoNoiseUBO.texture.imageView, nullptr);
 			vkDestroyDescriptorSetLayout(device, objectSetLayout, nullptr);
 			vkDestroyDescriptorSetLayout(device, globalSetLayout, nullptr);
 			vkDestroyDescriptorSetLayout(device, PBRSetLayout, nullptr);
-			vkDestroyDescriptorSetLayout(device, descriptorSetLayouts.gBuffer, nullptr);
-			vkDestroyDescriptorSetLayout(device, descriptorSetLayouts.ssao, nullptr);
-			vkDestroyDescriptorSetLayout(device, descriptorSetLayouts.ssaoBlur, nullptr);
-			vkDestroyDescriptorSetLayout(device, descriptorSetLayouts.assembly, nullptr);
 			vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 
 			for (int i = 0; i < FRAME_OVERLAP; i++)
@@ -1400,379 +1067,4 @@ size_t App::padUniformBufferSize(size_t originalSize)
 		alignedSize = (alignedSize + minAlignment - 1) & ~(minAlignment - 1);
 	}
 	return alignedSize;
-}
-
-void App::createAttachment(VkFormat format, VkImageUsageFlagBits usage, FrameBufferAttachment* attachment)
-{
-	VkImageAspectFlags aspectMask = 0;
-	attachment->format = format;
-
-	if (usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
-	{
-		aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	}
-	if (usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
-	{
-		aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-		if (format >= VK_FORMAT_D16_UNORM_S8_UINT)
-		{
-			aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
-		}
-	}
-	assert(aspectMask > 0);
-
-	VkExtent3D imageExtent = {};
-	imageExtent.width = windowExtent.width;
-	imageExtent.height = windowExtent.height;
-	imageExtent.depth = 1;
-	VkImageCreateInfo imageCI = VkInit::imageCreateInfo(format, usage | VK_IMAGE_USAGE_SAMPLED_BIT, imageExtent, msaaSamples);
-	VmaAllocationCreateInfo allocCI = {};
-	allocCI.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-	vmaCreateImage(allocator, &imageCI, &allocCI, &attachment->image.image, &attachment->image.allocation, nullptr);
-
-	VkImageViewCreateInfo imageViewCI = VkInit::imageviewCreateInfo(format, attachment->image.image, aspectMask);
-	VK_CHECK(vkCreateImageView(device, &imageViewCI, nullptr, &attachment->imageView));
-
-	mainDeletionQueue.push_function([=]()
-		{
-			vmaDestroyImage(allocator, attachment->image.image, attachment->image.allocation);
-			vkDestroyImageView(device, attachment->imageView, nullptr);
-		});
-}
-
-void App::initDeferredFramebuffers()
-{
-	createAttachment(VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, &frameBuffers.gBuffer.position);
-	createAttachment(VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, &frameBuffers.gBuffer.normal);
-	createAttachment(VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, &frameBuffers.gBuffer.albedo);
-	createAttachment(depthFormat, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, &frameBuffers.gBuffer.depth);
-
-	createAttachment(VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, &frameBuffers.ssao.color);
-
-	createAttachment(VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, &frameBuffers.ssaoBlur.color);
-
-	createAttachment(swapchainImageFormat, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, &frameBuffers.assembly.color);
-
-	// gbuffer
-	{
-		std::array<VkAttachmentDescription, 4> attachmentDescriptions = {};
-		for (uint32_t i = 0; i < static_cast<uint32_t>(attachmentDescriptions.size()); i++)
-		{
-			attachmentDescriptions[i].samples = msaaSamples;
-			attachmentDescriptions[i].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-			attachmentDescriptions[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-			attachmentDescriptions[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-			attachmentDescriptions[i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-			attachmentDescriptions[i].finalLayout = (i == 3) ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		}
-		attachmentDescriptions[0].format = frameBuffers.gBuffer.position.format;
-		attachmentDescriptions[1].format = frameBuffers.gBuffer.normal.format;
-		attachmentDescriptions[2].format = frameBuffers.gBuffer.albedo.format;
-		attachmentDescriptions[3].format = frameBuffers.gBuffer.depth.format;
-
-		std::vector<VkAttachmentReference> colorReferences;
-		colorReferences.push_back({ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL });
-		colorReferences.push_back({ 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL });
-		colorReferences.push_back({ 2, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL });
-
-		VkAttachmentReference depthReference = {};
-		depthReference.attachment = 3;
-		depthReference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-		VkSubpassDescription subpass = {};
-		subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-		subpass.pColorAttachments = colorReferences.data();
-		subpass.colorAttachmentCount = static_cast<uint32_t>(colorReferences.size());
-		subpass.pDepthStencilAttachment = &depthReference;
-
-		std::array<VkSubpassDependency, 2> dependencies;
-
-		dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
-		dependencies[0].dstSubpass = 0;
-		dependencies[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-		dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-		dependencies[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-		dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-		dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-		dependencies[1].srcSubpass = 0;
-		dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
-		dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-		dependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-		dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-		dependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-		dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-		VkRenderPassCreateInfo renderPassCI = {};
-		renderPassCI.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-		renderPassCI.pAttachments = attachmentDescriptions.data();
-		renderPassCI.attachmentCount = static_cast<uint32_t>(attachmentDescriptions.size());
-		renderPassCI.subpassCount = 1;
-		renderPassCI.pSubpasses = &subpass;
-		renderPassCI.dependencyCount = 2;
-		renderPassCI.pDependencies = dependencies.data();
-		VK_CHECK(vkCreateRenderPass(device, &renderPassCI, nullptr, &frameBuffers.gBuffer.renderPass));
-
-		std::array<VkImageView, 4> attachments;
-		attachments[0] = frameBuffers.gBuffer.position.imageView;
-		attachments[1] = frameBuffers.gBuffer.normal.imageView;
-		attachments[2] = frameBuffers.gBuffer.albedo.imageView;
-		attachments[3] = frameBuffers.gBuffer.depth.imageView;
-
-		VkFramebufferCreateInfo framebufferCI = VkInit::framebufferCreateInfo(frameBuffers.gBuffer.renderPass, windowExtent);
-		framebufferCI.pAttachments = attachments.data();
-		framebufferCI.attachmentCount = static_cast<uint32_t>(attachments.size());
-		VK_CHECK(vkCreateFramebuffer(device, &framebufferCI, nullptr, &frameBuffers.gBuffer.framebuffer));
-
-		mainDeletionQueue.push_function([=]()
-			{
-				vkDestroyRenderPass(device, frameBuffers.gBuffer.renderPass, nullptr);
-				vkDestroyFramebuffer(device, frameBuffers.gBuffer.framebuffer, nullptr);
-			});
-	}
-
-	// ssao
-	{
-		VkAttachmentDescription attachmentDescription{};
-		attachmentDescription.format = frameBuffers.ssao.color.format;
-		attachmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
-		attachmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-		attachmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-		attachmentDescription.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-		attachmentDescription.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-		attachmentDescription.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		attachmentDescription.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-		VkAttachmentReference colorReference = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
-
-		VkSubpassDescription subpass = {};
-		subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-		subpass.pColorAttachments = &colorReference;
-		subpass.colorAttachmentCount = 1;
-
-		std::array<VkSubpassDependency, 2> dependencies;
-
-		dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
-		dependencies[0].dstSubpass = 0;
-		dependencies[0].srcStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-		dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-		dependencies[0].srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-		dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-		dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-		dependencies[1].srcSubpass = 0;
-		dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
-		dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-		dependencies[1].dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-		dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-		dependencies[1].dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-		dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-		VkRenderPassCreateInfo renderPassInfo = {};
-		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-		renderPassInfo.pAttachments = &attachmentDescription;
-		renderPassInfo.attachmentCount = 1;
-		renderPassInfo.subpassCount = 1;
-		renderPassInfo.pSubpasses = &subpass;
-		renderPassInfo.dependencyCount = 2;
-		renderPassInfo.pDependencies = dependencies.data();
-		VK_CHECK(vkCreateRenderPass(device, &renderPassInfo, nullptr, &frameBuffers.ssao.renderPass));
-
-		VkFramebufferCreateInfo framebufferCI = VkInit::framebufferCreateInfo(frameBuffers.ssao.renderPass, windowExtent);
-		framebufferCI.pAttachments = &frameBuffers.ssao.color.imageView;
-		framebufferCI.attachmentCount = 1;
-		VK_CHECK(vkCreateFramebuffer(device, &framebufferCI, nullptr, &frameBuffers.ssao.framebuffer));
-
-		mainDeletionQueue.push_function([=]()
-			{
-				vkDestroyRenderPass(device, frameBuffers.ssao.renderPass, nullptr);
-				vkDestroyFramebuffer(device, frameBuffers.ssao.framebuffer, nullptr);
-			});
-	}
-
-	// ssao blur
-	{
-		VkAttachmentDescription attachmentDescription{};
-		attachmentDescription.format = frameBuffers.ssaoBlur.color.format;
-		attachmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
-		attachmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-		attachmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-		attachmentDescription.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-		attachmentDescription.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-		attachmentDescription.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		attachmentDescription.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-		VkAttachmentReference colorReference = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
-
-		VkSubpassDescription subpass = {};
-		subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-		subpass.pColorAttachments = &colorReference;
-		subpass.colorAttachmentCount = 1;
-
-		std::array<VkSubpassDependency, 2> dependencies;
-
-		dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
-		dependencies[0].dstSubpass = 0;
-		dependencies[0].srcStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-		dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-		dependencies[0].srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-		dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-		dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-		dependencies[1].srcSubpass = 0;
-		dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
-		dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-		dependencies[1].dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-		dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-		dependencies[1].dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-		dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-		VkRenderPassCreateInfo renderPassInfo = {};
-		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-		renderPassInfo.pAttachments = &attachmentDescription;
-		renderPassInfo.attachmentCount = 1;
-		renderPassInfo.subpassCount = 1;
-		renderPassInfo.pSubpasses = &subpass;
-		renderPassInfo.dependencyCount = 2;
-		renderPassInfo.pDependencies = dependencies.data();
-		VK_CHECK(vkCreateRenderPass(device, &renderPassInfo, nullptr, &frameBuffers.ssaoBlur.renderPass));
-
-		VkFramebufferCreateInfo framebufferCI = VkInit::framebufferCreateInfo(frameBuffers.ssaoBlur.renderPass, windowExtent);
-		framebufferCI.pAttachments = &frameBuffers.ssaoBlur.color.imageView;
-		framebufferCI.attachmentCount = 1;
-		VK_CHECK(vkCreateFramebuffer(device, &framebufferCI, nullptr, &frameBuffers.ssaoBlur.framebuffer));
-
-		mainDeletionQueue.push_function([=]()
-			{
-				vkDestroyRenderPass(device, frameBuffers.ssaoBlur.renderPass, nullptr);
-				vkDestroyFramebuffer(device, frameBuffers.ssaoBlur.framebuffer, nullptr);
-			});
-	}
-
-	// assembly
-	{
-		VkAttachmentDescription attachmentDescription{};
-		attachmentDescription.format = frameBuffers.assembly.color.format;
-		attachmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
-		attachmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-		attachmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-		attachmentDescription.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-		attachmentDescription.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-		attachmentDescription.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		attachmentDescription.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-
-		VkAttachmentReference colorReference = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
-
-		VkSubpassDescription subpass = {};
-		subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-		subpass.pColorAttachments = &colorReference;
-		subpass.colorAttachmentCount = 1;
-
-		std::array<VkSubpassDependency, 2> dependencies;
-
-		dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
-		dependencies[0].dstSubpass = 0;
-		dependencies[0].srcStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-		dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-		dependencies[0].srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-		dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-		dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-		dependencies[1].srcSubpass = 0;
-		dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
-		dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-		dependencies[1].dstStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-		dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-		dependencies[1].dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
-		dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-		VkRenderPassCreateInfo renderPassInfo = {};
-		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-		renderPassInfo.pAttachments = &attachmentDescription;
-		renderPassInfo.attachmentCount = 1;
-		renderPassInfo.subpassCount = 1;
-		renderPassInfo.pSubpasses = &subpass;
-		renderPassInfo.dependencyCount = 2;
-		renderPassInfo.pDependencies = dependencies.data();
-		VK_CHECK(vkCreateRenderPass(device, &renderPassInfo, nullptr, &frameBuffers.assembly.renderPass));
-
-		VkFramebufferCreateInfo framebufferCI = VkInit::framebufferCreateInfo(frameBuffers.assembly.renderPass, windowExtent);
-
-		const size_t swapchainImageCount = swapchainImages.size();
-		frameBuffers.assembly.framebuffer = std::vector<VkFramebuffer>(swapchainImageCount);
-
-		for (unsigned int i = 0; i < swapchainImageCount; i++)
-		{
-			VkImageView attachment = swapchainImageViews[i];
-
-			framebufferCI.pAttachments = &attachment;
-			framebufferCI.attachmentCount = 1;
-			VK_CHECK(vkCreateFramebuffer(device, &framebufferCI, nullptr, &frameBuffers.assembly.framebuffer[i]));
-
-			mainDeletionQueue.push_function([=]()
-				{
-					vkDestroyFramebuffer(device, frameBuffers.assembly.framebuffer[i], nullptr);
-					vkDestroyImageView(device, swapchainImageViews[i], nullptr);
-				});
-		}
-	}
-}
-
-void App::generateGBuffer(VkCommandBuffer commandBuffer, RenderObject object)
-{
-	glm::vec3 camPos = { 0.f, 0.f, -3.f };
-	glm::mat4 view = glm::translate(glm::mat4(1.f), camPos);
-	glm::mat4 projection = glm::perspective(glm::radians(60.f), (float)windowExtent.width / windowExtent.height, 0.1f, 64.0f);
-	projection[1][1] *= -1;
-
-	// send camera data to uniform buffer
-	GPUCameraData camData;
-	camData.proj = projection;
-	camData.view = view;
-	camData.viewproj = projection * view;
-	void* data;
-	vmaMapMemory(allocator, getCurrentFrame().cameraBuffer.allocation, &data);
-	memcpy(data, &camData, sizeof(GPUCameraData));
-	vmaUnmapMemory(allocator, getCurrentFrame().cameraBuffer.allocation);
-
-	// allocating scene parameters
-	float d = (frameNumber / 144.f);
-	sceneParameters.ambientColor = { 0.03f, 0.03f , 0.03f, 1.f };
-	sceneParameters.lightPosition = { 10.f, 0.f, 3.f, 1.f };
-	sceneParameters.lightColor = { 150.f, 150.f, 150.f, 1.f };
-	char* sceneData;
-	vmaMapMemory(allocator, sceneParameterBuffer.allocation, (void**)&sceneData);
-	int frameIndex = frameNumber % FRAME_OVERLAP;
-	sceneData += padUniformBufferSize(sizeof(GPUSceneData)) * frameIndex;
-	memcpy(sceneData, &sceneParameters, sizeof(GPUSceneData));
-	vmaUnmapMemory(allocator, sceneParameterBuffer.allocation);
-
-	// allocating object buffer
-	void* objectData;
-	vmaMapMemory(allocator, getCurrentFrame().objectBuffer.allocation, &objectData);
-	GPUObjectData* objectSSBO = (GPUObjectData*)objectData;
-	objectSSBO->modelMatrix = object.transformMatrix;
-	objectSSBO->modelMatrix = glm::rotate(objectSSBO->modelMatrix, glm::radians(frameNumber * 0.10f), glm::vec3(0, 1, 0));
-	vmaUnmapMemory(allocator, getCurrentFrame().objectBuffer.allocation);
-
-	// allocate ssao parameters
-	void* ssaoKernelData;
-	vmaMapMemory(allocator, ssaoKernelBuffer_.allocation, &ssaoKernelData);
-	memcpy(ssaoKernelData, ssaoKernel_.kernel.data(), sizeof(glm::vec4) * SSAO_KERNEL_SIZE);
-	vmaUnmapMemory(allocator, ssaoKernelBuffer_.allocation);
-
-	uint32_t uniformOffset = padUniformBufferSize(sizeof(GPUSceneData)) * frameIndex;
-	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayouts.gBuffer,
-		0, 1, &getCurrentFrame().globalDescriptor, 1, &uniformOffset);
-	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayouts.gBuffer,
-		1, 1, &getCurrentFrame().objectDescriptor, 0, nullptr);
-	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayouts.gBuffer,
-		2, 1, &descriptorSets.gBuffer, 0, nullptr);
-
-	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines.gBuffer);
-
-	VkDeviceSize offset = 0;
-	vkCmdBindVertexBuffers(commandBuffer, 0, 1, &object.mesh->vertexBuffer.buffer, &offset);
-	vkCmdBindIndexBuffer(commandBuffer, object.mesh->indexBuffer.buffer, offset, VK_INDEX_TYPE_UINT32);
-	vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(object.mesh->indices.size()), 1, 0, 0, 0);
 }
