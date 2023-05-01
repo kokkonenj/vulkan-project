@@ -459,6 +459,12 @@ void App::initPipelines()
 
 void App::initScene()
 {
+	RenderObject background;
+	background.mesh = getMesh("background");
+	background.material = getMaterial("pbr");
+	background.transformMatrix = glm::mat4{ 1.0f };
+	renderables.push_back(background);
+
 	RenderObject sphere;
 	sphere.mesh = getMesh("sphere");
 	sphere.material = getMaterial("pbr");
@@ -640,6 +646,11 @@ void App::loadMeshes()
 	sphere.loadFromObj("../../assets/sphere_smooth.obj");
 	uploadMesh(sphere);
 	meshes["sphere"] = sphere;
+
+	Mesh background{};
+	background.loadFromObj("../../assets/background.obj");
+	uploadMesh(background);
+	meshes["background"] = background;
 }
 
 void App::loadImages()
@@ -803,7 +814,7 @@ Mesh* App::getMesh(const std::string& name)
 
 void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int count)
 {
-	glm::vec3 camPos = { 0.f, 0.f, -3.f };
+	glm::vec3 camPos = { 0.f, 0.f, -5.f };
 	glm::mat4 view = glm::translate(glm::mat4(1.f), camPos);
 	glm::mat4 projection = glm::perspective(glm::radians(60.f), (float) windowExtent.width / windowExtent.height, 0.1f, 200.0f);
 	projection[1][1] *= -1;
@@ -839,7 +850,7 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 		RenderObject& object = first[i];
 		objectSSBO[i].modelMatrix = object.transformMatrix;
 		// rotate
-		objectSSBO[i].modelMatrix = glm::rotate(objectSSBO[i].modelMatrix, glm::radians(frameNumber * 0.10f), glm::vec3(0, 1, 0));
+		//objectSSBO[i].modelMatrix = glm::rotate(objectSSBO[i].modelMatrix, glm::radians(frameNumber * 0.10f), glm::vec3(0, 1, 0));
 	}
 	vmaUnmapMemory(allocator, getCurrentFrame().objectBuffer.allocation);
 

@@ -89,9 +89,13 @@ void main()
 
 	// go over all lights
 	vec3 L = normalize(vec3(sceneData.lightPosition) - vertPos);
+	// overwrite for directional light
+	L = normalize(vec3(10.0, 10.0, 5.0));
 	vec3 H = normalize(V + L);
 	float distance = length(vec3(sceneData.lightPosition) - vertPos);
 	float attenuation = 1.0 / (distance * distance);
+	// overwrite for directional light
+	attenuation = 0.05;
 	vec3 radiance = vec3(sceneData.lightColor) * attenuation;
 
 	float NDF = DistributionGGX(N, H, roughness);
