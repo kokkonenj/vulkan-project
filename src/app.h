@@ -167,10 +167,6 @@ private:
 	AllocatedImage colorImage;
 	VkImageView colorImageView;
 
-	// post process
-	AllocatedImage bloomImage;
-	VkImageView bloomImageView;
-
 	VkDescriptorPool descriptorPool;
 	VkDescriptorSetLayout globalSetLayout;
 	VkDescriptorSetLayout objectSetLayout;
@@ -180,6 +176,13 @@ private:
 	VkPhysicalDeviceProperties gpuProperties;
 
 	UploadContext uploadContext;
+
+	// shadow mapping
+	VkFramebuffer shadowPassFrameBuffer;
+	VkRenderPass shadowPass;
+	AllocatedImage shadowImage;
+	VkImageView shadowImageView;
+	VkSampler shadowSampler;
 
 	void initVulkan();
 	void initSwapchain();
@@ -206,4 +209,8 @@ private:
 
 	void initDescriptors();
 	size_t padUniformBufferSize(size_t originalSize);
+
+	bool isFormatFilterable(VkPhysicalDevice physDevice, VkFormat format, VkImageTiling tiling);
+	void initShadowPass();
+	void initShadowPassFramebuffer();
 };

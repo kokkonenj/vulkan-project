@@ -4,6 +4,7 @@
 #include <VkBootstrap.h>
 #include <iostream>
 #include <fstream>
+#include <array>
 #include "vk_textures.h"
 
 #define VMA_IMPLEMENTATION
@@ -43,6 +44,8 @@ App::App()
 	initCommands();
 	initDefaultRenderpass();
 	initFramebuffers();
+	initShadowPass();
+	initShadowPassFramebuffer();
 	initSyncStructures();
 	initDescriptors();
 	initPipelines();
@@ -816,7 +819,7 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 {
 	glm::vec3 camPos = { 0.f, 0.f, -5.f };
 	glm::mat4 view = glm::translate(glm::mat4(1.f), camPos);
-	glm::mat4 projection = glm::perspective(glm::radians(60.f), (float) windowExtent.width / windowExtent.height, 0.1f, 200.0f);
+	glm::mat4 projection = glm::perspective(glm::radians(60.f), (float) windowExtent.width / windowExtent.height, 1.0f, 64.0f);
 	projection[1][1] *= -1;
 
 	// send camera data to uniform buffer
@@ -832,7 +835,7 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 	// allocating scene parameters
 	float d = (frameNumber / 144.f);
 	sceneParameters.ambientColor = { 0.03f, 0.03f , 0.03f, 1.f };
-	sceneParameters.lightPosition = { 10.f, 0.f, 3.f, 1.f };
+	sceneParameters.lightPosition = { 10.f, 10.f, 5.f, 1.f };
 	sceneParameters.lightColor = { 150.f, 150.f, 150.f, 1.f };
 	char* sceneData;
 	vmaMapMemory(allocator, sceneParameterBuffer.allocation, (void**)&sceneData);
@@ -1078,4 +1081,119 @@ size_t App::padUniformBufferSize(size_t originalSize)
 		alignedSize = (alignedSize + minAlignment - 1) & ~(minAlignment - 1);
 	}
 	return alignedSize;
+}
+
+bool App::isFormatFilterable(VkPhysicalDevice physDevice, VkFormat format, VkImageTiling tiling)
+{
+	VkFormatProperties formatProps;
+	vkGetPhysicalDeviceFormatProperties(physDevice, format, &formatProps);
+	if (tiling == VK_IMAGE_TILING_OPTIMAL)
+		return formatProps.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+	if (tiling == VK_IMAGE_TILING_LINEAR)
+		return formatProps.linearTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+	return false;
+}
+
+void App::initShadowPass()
+{
+	VkAttachmentDescription attachmentDescription = {};
+	attachmentDescription.format = depthFormat;
+	attachmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
+	attachmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	attachmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	attachmentDescription.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	attachmentDescription.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	attachmentDescription.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	attachmentDescription.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+	VkAttachmentReference depthReference = {};
+	depthReference.attachment = 0;
+	depthReference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+	VkSubpassDescription subpass = {};
+	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpass.colorAttachmentCount = 0;
+	subpass.pDepthStencilAttachment = &depthReference;
+
+	// layout transitions done with subpass dependencies
+	std::array<VkSubpassDependency, 2> dependencies;
+
+	dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+	dependencies[0].dstSubpass = 0;
+	dependencies[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	dependencies[0].dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+	dependencies[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	dependencies[0].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+	dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+	dependencies[1].srcSubpass = 0;
+	dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+	dependencies[1].srcStageMask = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+	dependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	dependencies[1].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+	dependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+	VkRenderPassCreateInfo renderPassCreateInfo = {};
+	renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	renderPassCreateInfo.pNext = nullptr;
+	renderPassCreateInfo.attachmentCount = 1;
+	renderPassCreateInfo.pAttachments = &attachmentDescription;
+	renderPassCreateInfo.subpassCount = 1;
+	renderPassCreateInfo.pSubpasses = &subpass;
+	renderPassCreateInfo.dependencyCount = static_cast<uint32_t>(dependencies.size());
+	renderPassCreateInfo.pDependencies = dependencies.data();
+
+	VK_CHECK(vkCreateRenderPass(device, &renderPassCreateInfo, nullptr, &shadowPass));
+
+	mainDeletionQueue.push_function([=]()
+		{
+			vkDestroyRenderPass(device, shadowPass, nullptr);
+		});
+}
+
+void App::initShadowPassFramebuffer()
+{
+	// create image and imageview for shadow image framebuffer
+	VkExtent3D imageExtent = {
+		2048u,
+		2048u,
+		1
+	};
+	VkImageCreateInfo imageInfo = VkInit::imageCreateInfo(
+		depthFormat,
+		VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+		imageExtent,
+		VK_SAMPLE_COUNT_1_BIT
+	);
+	VmaAllocationCreateInfo imageAllocInfo = {};
+	imageAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+	imageAllocInfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	vmaCreateImage(allocator, &imageInfo, &imageAllocInfo, &shadowImage.image, &shadowImage.allocation, nullptr);
+	VkImageViewCreateInfo imageViewInfo = VkInit::imageviewCreateInfo(depthFormat, shadowImage.image, VK_IMAGE_ASPECT_DEPTH_BIT);
+	VK_CHECK(vkCreateImageView(device, &imageViewInfo, nullptr, &shadowImageView));
+
+	// create sampler for shadow image
+	VkFilter shadowmapFilter = isFormatFilterable(gpu, depthFormat, VK_IMAGE_TILING_OPTIMAL) ?
+		VK_FILTER_LINEAR :
+		VK_FILTER_NEAREST;
+	VkSamplerCreateInfo samplerInfo = VkInit::samplerCreateInfo(shadowmapFilter, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+	samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+	samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+	VK_CHECK(vkCreateSampler(device, &samplerInfo, nullptr, &shadowSampler));
+
+	// create framebuffer for shadow image
+	VkExtent2D fbExtent = { 2048u, 2048u };
+	VkFramebufferCreateInfo fbInfo = VkInit::framebufferCreateInfo(shadowPass, fbExtent);
+	fbInfo.attachmentCount = 1;
+	fbInfo.pAttachments = &shadowImageView;
+	VK_CHECK(vkCreateFramebuffer(device, &fbInfo, nullptr, &shadowPassFrameBuffer));
+
+	mainDeletionQueue.push_function([=]()
+		{
+			vkDestroyImageView(device, shadowImageView, nullptr);
+			vmaDestroyImage(allocator, shadowImage.image, shadowImage.allocation);
+			vkDestroySampler(device, shadowSampler, nullptr);
+			vkDestroyFramebuffer(device, shadowPassFrameBuffer, nullptr);
+		});
 }
