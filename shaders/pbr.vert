@@ -12,6 +12,7 @@ layout (location = 2) out vec3 vertPos;
 layout (location = 3) out vec3 normal;
 layout (location = 4) out vec3 camPos;
 layout (location = 5) out vec4 tangent;
+layout (location = 6) out vec4 outShadowCoord;
 
 layout(set = 0, binding = 0) uniform CameraBuffer
 {
@@ -19,6 +20,11 @@ layout(set = 0, binding = 0) uniform CameraBuffer
 	mat4 proj;
 	mat4 viewproj;
 } cameraData;
+
+layout(set = 0, binding = 3) uniform UBO
+{
+	mat4 lightSpace;
+} ubo;
 
 struct ObjectData
 {
@@ -35,6 +41,13 @@ layout (push_constant) uniform constants
 	vec3 cameraPosition;
 } PushConstants;
 
+const mat4 biasMat = mat4 (
+	0.5, 0.0, 0.0, 0.0,
+	0.0, 0.5, 0.0, 0.0,
+	0.0, 0.0, 1.0, 0.0,
+	0.5, 0.5, 0.0, 1.0
+);
+
 void main()
 {
 	mat4 modelMatrix = objectBuffer.objects[gl_BaseInstance].model;
@@ -48,4 +61,5 @@ void main()
 	vertPos = vec3(vertPos4);
 	normal = normalize(mat3(modelMatrix) * aNormal);
 	tangent = vec4(normalize(mat3(modelMatrix) * aTangent.xyz), aTangent.w);
+	outShadowCoord = (biasMat * ubo.lightSpace * modelMatrix) * vec4(aPos, 1.0);
 }

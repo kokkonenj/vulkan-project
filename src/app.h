@@ -74,6 +74,7 @@ struct FrameData
 	VkCommandBuffer mainCommandBuffer;
 
 	AllocatedBuffer cameraBuffer;
+	AllocatedBuffer lightMVPBuffer;
 	VkDescriptorSet globalDescriptor;
 
 	AllocatedBuffer objectBuffer;
@@ -94,6 +95,11 @@ struct GPUSceneData
 	glm::vec4 ambientColor;
 	glm::vec4 sunlightDirection;
 	glm::vec4 sunlightColor;
+};
+
+struct GPUlightMVPData
+{
+	glm::mat4 lightMVP;
 };
 
 struct GPUObjectData
@@ -183,6 +189,8 @@ private:
 	AllocatedImage shadowImage;
 	VkImageView shadowImageView;
 	VkSampler shadowSampler;
+	VkPipelineLayout shadowMapPipelineLayout;
+	VkPipeline shadowMapPipeline;
 
 	void initVulkan();
 	void initSwapchain();
@@ -205,7 +213,7 @@ private:
 	Material* createMaterial(VkPipeline pipeline, VkPipelineLayout layout, const std::string& name);
 	Material* getMaterial(const std::string& name);
 	Mesh* getMesh(const std::string& name);
-	void drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int count);
+	void drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int count, bool isShadowPass);
 
 	void initDescriptors();
 	size_t padUniformBufferSize(size_t originalSize);

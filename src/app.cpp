@@ -402,6 +402,18 @@ void App::initPipelines()
 		std::cout << "Error when loading the mesh vertex shader module" << std::endl;
 	}
 
+	VkShaderModule shadowMapVertShader;
+	if (!loadShaderModule("../../shaders/shadowmap.vert.spv", &shadowMapVertShader))
+	{
+		std::cout << "Error when loading the shadowmap vertex shader module" << std::endl;
+	}
+
+	VkShaderModule shadowMapFragShader;
+	if (!loadShaderModule("../../shaders/shadowmap.frag.spv", &shadowMapFragShader))
+	{
+		std::cout << "Error when loading the shadowmap fragment shader module" << std::endl;
+	}
+
 	// push constants
 	VkPushConstantRange pushConstants;
 	pushConstants.offset = 0;
@@ -450,13 +462,38 @@ void App::initPipelines()
 	VkPipeline PBRPipeline = pipelineBuilder.buildPipeline(device, renderPass);
 	createMaterial(PBRPipeline, pbrPipelineLayout, "pbr");
 
+	// shadowmap pipeline
+	VkPipelineLayoutCreateInfo shadowMapPipelineLayoutInfo = VkInit::pipelineLayoutCreateInfo();
+	shadowMapPipelineLayoutInfo.pPushConstantRanges = &pushConstants;
+	shadowMapPipelineLayoutInfo.pushConstantRangeCount = 1;
+	VkDescriptorSetLayout shadowMapSetLayouts[] = { globalSetLayout, objectSetLayout };
+	shadowMapPipelineLayoutInfo.setLayoutCount = std::size(shadowMapSetLayouts);
+	shadowMapPipelineLayoutInfo.pSetLayouts = shadowMapSetLayouts;
+	VK_CHECK(vkCreatePipelineLayout(device, &shadowMapPipelineLayoutInfo, nullptr, &shadowMapPipelineLayout));
+
+	pipelineBuilder.shaderStages.clear();
+	pipelineBuilder.shaderStages.push_back(
+		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_VERTEX_BIT, shadowMapVertShader));
+	pipelineBuilder.shaderStages.push_back(
+		VkInit::pipelineShaderStageCreateInfo(VK_SHADER_STAGE_FRAGMENT_BIT, shadowMapFragShader));
+	pipelineBuilder.pipelineLayout = shadowMapPipelineLayout;
+	pipelineBuilder.multisampling = VkInit::multisamplingStateCreateInfo(VK_SAMPLE_COUNT_1_BIT);
+	pipelineBuilder.colorBlendAttachment.colorWriteMask = 0xf;
+	pipelineBuilder.rasterizer.depthBiasEnable = VK_TRUE;
+	pipelineBuilder.rasterizer.cullMode = VK_CULL_MODE_NONE;
+	shadowMapPipeline = pipelineBuilder.buildPipeline(device, shadowPass);
+
 	// Deletion of shader modules and pipelines
 	vkDestroyShaderModule(device, pbrVertShader, nullptr);
 	vkDestroyShaderModule(device, pbrFragShader, nullptr);
+	vkDestroyShaderModule(device, shadowMapVertShader, nullptr);
+	vkDestroyShaderModule(device, shadowMapFragShader, nullptr);
 
 	mainDeletionQueue.push_function([=]() {
 		vkDestroyPipeline(device, PBRPipeline, nullptr);
 		vkDestroyPipelineLayout(device, pbrPipelineLayout, nullptr);
+		vkDestroyPipeline(device, shadowMapPipeline, nullptr);
+		vkDestroyPipelineLayout(device, shadowMapPipelineLayout, nullptr);
 		});
 }
 
@@ -553,6 +590,24 @@ void App::draw()
 	VkCommandBufferBeginInfo cmdBeginInfo = VkInit::commandBufferBeginInfo(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
 	VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 
+	// shadow mapping pass
+	{
+		VkClearValue clearValue;
+		clearValue.depthStencil = { 1.0f, 0 };
+		VkRenderPassBeginInfo renderPassInfo = VkInit::renderpassBeginInfo(shadowPass, windowExtent, shadowPassFrameBuffer);
+		renderPassInfo.clearValueCount = 1;
+		renderPassInfo.pClearValues = &clearValue;
+		vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+		vkCmdSetDepthBias(
+			cmd,
+			0.005f,
+			0.f,
+			0.01f
+		);
+		drawObjects(cmd, renderables.data(), renderables.size(), true);
+		vkCmdEndRenderPass(cmd);
+	}
+
 	// Clear values
 	// color of the screen (background)
 	VkClearValue clearValue;
@@ -570,7 +625,7 @@ void App::draw()
 
 	/* ----- RENDERING COMMANDS BEGIN ----- */
 	
-	drawObjects(cmd, renderables.data(), renderables.size());
+	drawObjects(cmd, renderables.data(), renderables.size(), false);
 
 	/* ----- RENDERING COMMANDS END ----- */
 
@@ -815,7 +870,7 @@ Mesh* App::getMesh(const std::string& name)
 	}
 }
 
-void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int count)
+void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int count, bool isShadowPass)
 {
 	glm::vec3 camPos = { 0.f, 0.f, -5.f };
 	glm::mat4 view = glm::translate(glm::mat4(1.f), camPos);
@@ -835,7 +890,7 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 	// allocating scene parameters
 	float d = (frameNumber / 144.f);
 	sceneParameters.ambientColor = { 0.03f, 0.03f , 0.03f, 1.f };
-	sceneParameters.lightPosition = { 10.f, 10.f, 5.f, 1.f };
+	sceneParameters.lightPosition = { 2.f*sin(d*0.1), 0.f, 2.f*cos(d*0.1), 1.f };
 	sceneParameters.lightColor = { 150.f, 150.f, 150.f, 1.f };
 	char* sceneData;
 	vmaMapMemory(allocator, sceneParameterBuffer.allocation, (void**)&sceneData);
@@ -843,6 +898,17 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 	sceneData += padUniformBufferSize(sizeof(GPUSceneData)) * frameIndex;
 	memcpy(sceneData, &sceneParameters, sizeof(GPUSceneData));
 	vmaUnmapMemory(allocator, sceneParameterBuffer.allocation);
+
+	// send light position data for shadowmapping
+	GPUlightMVPData lightMVP;
+	glm::mat4 lightProjectionMatrix = glm::perspective(glm::radians(45.f), 1.f, 1.0f, 32.f);
+	glm::mat4 lightViewMatrix = glm::lookAt(glm::vec3(sceneParameters.lightPosition), glm::vec3(0.f), glm::vec3(0, 1, 0));
+	glm::mat4 lightModelMatrix = glm::mat4(1.f);
+	lightMVP.lightMVP = lightProjectionMatrix * lightViewMatrix * lightModelMatrix;
+	void* lightMVPData;
+	vmaMapMemory(allocator, getCurrentFrame().lightMVPBuffer.allocation, &lightMVPData);
+	memcpy(lightMVPData, &lightMVP, sizeof(GPUlightMVPData));
+	vmaUnmapMemory(allocator, getCurrentFrame().lightMVPBuffer.allocation);
 
 	// allocating object buffer
 	void* objectData;
@@ -865,18 +931,30 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 
 		if (object.material != lastMaterial)
 		{
-			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipeline);
+			VkPipeline* pipeline;
+			VkPipelineLayout* pipelineLayout;
+			if (isShadowPass)
+			{
+				pipeline = &shadowMapPipeline;
+				pipelineLayout = &shadowMapPipelineLayout;
+			}
+			else
+			{
+				pipeline = &object.material->pipeline;
+				pipelineLayout = &object.material->pipelineLayout;
+			}
+			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline);
 			lastMaterial = object.material;
 			// camera data descriptor
 			uint32_t uniformOffset = padUniformBufferSize(sizeof(GPUSceneData)) * frameIndex;
-			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipelineLayout,
+			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipelineLayout,
 				0, 1, &getCurrentFrame().globalDescriptor, 1, &uniformOffset);
 			// object data descriptor
-			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipelineLayout,
+			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipelineLayout,
 				1, 1, &getCurrentFrame().objectDescriptor, 0, nullptr);
-			if (object.material->textureSet != VK_NULL_HANDLE)
+			if (object.material->textureSet != VK_NULL_HANDLE && !isShadowPass)
 			{
-				vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, object.material->pipelineLayout,
+				vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipelineLayout,
 					2, 1, &object.material->textureSet, 0, nullptr);
 			}
 		}
@@ -943,8 +1021,12 @@ void App::initDescriptors()
 	VkDescriptorSetLayoutBinding camBinding = VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
 	// scene data binding
 	VkDescriptorSetLayoutBinding sceneBinding = VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 1);
+	// shadowmap binding
+	VkDescriptorSetLayoutBinding shadowMapBinding = VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 2);
+	// lightMVP binding
+	VkDescriptorSetLayoutBinding lightMVPBinding = VkInit::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 3);
 
-	VkDescriptorSetLayoutBinding bindings[] = { camBinding, sceneBinding };
+	VkDescriptorSetLayoutBinding bindings[] = { camBinding, sceneBinding, shadowMapBinding, lightMVPBinding };
 
 	VkDescriptorSetLayoutCreateInfo setinfo = {};
 	setinfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -989,6 +1071,8 @@ void App::initDescriptors()
 		const int MAX_OBJECTS = 10000;
 		frames[i].objectBuffer = createBuffer(sizeof(GPUObjectData) * MAX_OBJECTS, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
+		frames[i].lightMVPBuffer = createBuffer(sizeof(GPUlightMVPData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+
 		// alloc one descritpor set for each frame
 		VkDescriptorSetAllocateInfo allocInfo = {};
 		allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -1019,6 +1103,18 @@ void App::initDescriptors()
 		sceneInfo.offset = 0;
 		sceneInfo.range = sizeof(GPUSceneData);
 
+		// info about shadow map
+		VkDescriptorImageInfo shadowMapInfo = {};
+		shadowMapInfo.sampler = shadowSampler;
+		shadowMapInfo.imageView = shadowImageView;
+		shadowMapInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+		// info about lightMVP buffer
+		VkDescriptorBufferInfo lightMVPInfo = {};
+		lightMVPInfo.buffer = frames[i].lightMVPBuffer.buffer;
+		lightMVPInfo.offset = 0;
+		lightMVPInfo.range = sizeof(GPUlightMVPData);
+
 		// info about object buffer for descriptor
 		VkDescriptorBufferInfo objectBufferInfo = {};
 		objectBufferInfo.buffer = frames[i].objectBuffer.buffer;
@@ -1028,11 +1124,13 @@ void App::initDescriptors()
 		// write descriptors
 		VkWriteDescriptorSet cameraWrite = VkInit::writeDescriptorBuffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frames[i].globalDescriptor, &cameraInfo, 0);
 		VkWriteDescriptorSet sceneWrite = VkInit::writeDescriptorBuffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, frames[i].globalDescriptor, &sceneInfo, 1);
+		VkWriteDescriptorSet shadowMapWrite = VkInit::writeDescriptorImage(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, frames[i].globalDescriptor, &shadowMapInfo, 2);
+		VkWriteDescriptorSet lightMVPWrite = VkInit::writeDescriptorBuffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, frames[i].globalDescriptor, &lightMVPInfo, 3);
 		VkWriteDescriptorSet objectWrite = VkInit::writeDescriptorBuffer(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, frames[i].objectDescriptor, &objectBufferInfo, 0);
 
-		VkWriteDescriptorSet setWrites[] = { cameraWrite, sceneWrite, objectWrite };
+		VkWriteDescriptorSet setWrites[] = { cameraWrite, sceneWrite,shadowMapWrite, lightMVPWrite, objectWrite };
 
-		vkUpdateDescriptorSets(device, 3, setWrites, 0, nullptr);
+		vkUpdateDescriptorSets(device, 5, setWrites, 0, nullptr);
 	}
 
 	// add buffers to deletion queues
@@ -1048,6 +1146,7 @@ void App::initDescriptors()
 			{
 				vmaDestroyBuffer(allocator, frames[i].cameraBuffer.buffer, frames[i].cameraBuffer.allocation);
 				vmaDestroyBuffer(allocator, frames[i].objectBuffer.buffer, frames[i].objectBuffer.allocation);
+				vmaDestroyBuffer(allocator, frames[i].lightMVPBuffer.buffer, frames[i].lightMVPBuffer.allocation);
 			}
 		});
 }
