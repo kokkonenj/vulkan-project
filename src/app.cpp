@@ -44,6 +44,7 @@ App::App()
 	initCommands();
 	initDefaultRenderpass();
 	initFramebuffers();
+	initCubeMap();
 	initShadowPass();
 	initShadowPassFramebuffer();
 	initSyncStructures();
@@ -592,20 +593,10 @@ void App::draw()
 
 	// shadow mapping pass
 	{
-		VkClearValue clearValue;
-		clearValue.depthStencil = { 1.0f, 0 };
-		VkRenderPassBeginInfo renderPassInfo = VkInit::renderpassBeginInfo(shadowPass, windowExtent, shadowPassFrameBuffer);
-		renderPassInfo.clearValueCount = 1;
-		renderPassInfo.pClearValues = &clearValue;
-		vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-		vkCmdSetDepthBias(
-			cmd,
-			0.005f,
-			0.f,
-			0.01f
-		);
-		drawObjects(cmd, renderables.data(), renderables.size(), true);
-		vkCmdEndRenderPass(cmd);
+		for (size_t i = 0; i < 6; i++)
+		{
+			updateCubeFace(i, cmd, windowExtent);
+		}
 	}
 
 	// Clear values
@@ -890,7 +881,7 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 	// allocating scene parameters
 	float d = (frameNumber / 144.f);
 	sceneParameters.ambientColor = { 0.03f, 0.03f , 0.03f, 1.f };
-	sceneParameters.lightPosition = { 2.f*sin(d*0.1), 0.f, 2.f*cos(d*0.1), 1.f };
+	sceneParameters.lightPosition = { 2.f*sin(d), 0.f, 2.f*cos(d), 1.f };
 	sceneParameters.lightColor = { 150.f, 150.f, 150.f, 1.f };
 	char* sceneData;
 	vmaMapMemory(allocator, sceneParameterBuffer.allocation, (void**)&sceneData);
@@ -900,14 +891,12 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 	vmaUnmapMemory(allocator, sceneParameterBuffer.allocation);
 
 	// send light position data for shadowmapping
-	GPUlightMVPData lightMVP;
-	glm::mat4 lightProjectionMatrix = glm::perspective(glm::radians(45.f), 1.f, 1.0f, 32.f);
-	glm::mat4 lightViewMatrix = glm::lookAt(glm::vec3(sceneParameters.lightPosition), glm::vec3(0.f), glm::vec3(0, 1, 0));
-	glm::mat4 lightModelMatrix = glm::mat4(1.f);
-	lightMVP.lightMVP = lightProjectionMatrix * lightViewMatrix * lightModelMatrix;
+	lightUBO.projection = glm::perspective(glm::radians(90.f), 1.f, 1.0f, 32.f);
+	lightUBO.projection[1][1] *= -1;
+	lightUBO.model = glm::translate(glm::mat4(1.0f), glm::vec3(-sceneParameters.lightPosition.x, -sceneParameters.lightPosition.y, -sceneParameters.lightPosition.z));
 	void* lightMVPData;
 	vmaMapMemory(allocator, getCurrentFrame().lightMVPBuffer.allocation, &lightMVPData);
-	memcpy(lightMVPData, &lightMVP, sizeof(GPUlightMVPData));
+	memcpy(lightMVPData, &lightUBO, sizeof(GPUlightMVPData));
 	vmaUnmapMemory(allocator, getCurrentFrame().lightMVPBuffer.allocation);
 
 	// allocating object buffer
@@ -1105,9 +1094,9 @@ void App::initDescriptors()
 
 		// info about shadow map
 		VkDescriptorImageInfo shadowMapInfo = {};
-		shadowMapInfo.sampler = shadowSampler;
-		shadowMapInfo.imageView = shadowImageView;
-		shadowMapInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+		shadowMapInfo.sampler = shadowCubeSampler;
+		shadowMapInfo.imageView = shadowCubeImageView;
+		shadowMapInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
 		// info about lightMVP buffer
 		VkDescriptorBufferInfo lightMVPInfo = {};
@@ -1195,23 +1184,38 @@ bool App::isFormatFilterable(VkPhysicalDevice physDevice, VkFormat format, VkIma
 
 void App::initShadowPass()
 {
-	VkAttachmentDescription attachmentDescription = {};
-	attachmentDescription.format = depthFormat;
-	attachmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
-	attachmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	attachmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	attachmentDescription.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	attachmentDescription.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	attachmentDescription.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	attachmentDescription.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+	VkAttachmentDescription attachmentDescriptions[2] = {};
+
+	attachmentDescriptions[0].format = VK_FORMAT_R32_SFLOAT;
+	attachmentDescriptions[0].samples = VK_SAMPLE_COUNT_1_BIT;
+	attachmentDescriptions[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	attachmentDescriptions[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	attachmentDescriptions[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	attachmentDescriptions[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	attachmentDescriptions[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	attachmentDescriptions[0].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+	attachmentDescriptions[1].format = depthFormat;
+	attachmentDescriptions[1].samples = VK_SAMPLE_COUNT_1_BIT;
+	attachmentDescriptions[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	attachmentDescriptions[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	attachmentDescriptions[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	attachmentDescriptions[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	attachmentDescriptions[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	attachmentDescriptions[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+	VkAttachmentReference colorReference = {};
+	colorReference.attachment = 0;
+	colorReference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
 	VkAttachmentReference depthReference = {};
-	depthReference.attachment = 0;
+	depthReference.attachment = 1;
 	depthReference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
 	VkSubpassDescription subpass = {};
 	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-	subpass.colorAttachmentCount = 0;
+	subpass.colorAttachmentCount = 1;
+	subpass.pColorAttachments = &colorReference;
 	subpass.pDepthStencilAttachment = &depthReference;
 
 	// layout transitions done with subpass dependencies
@@ -1236,8 +1240,8 @@ void App::initShadowPass()
 	VkRenderPassCreateInfo renderPassCreateInfo = {};
 	renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
 	renderPassCreateInfo.pNext = nullptr;
-	renderPassCreateInfo.attachmentCount = 1;
-	renderPassCreateInfo.pAttachments = &attachmentDescription;
+	renderPassCreateInfo.attachmentCount = 2;
+	renderPassCreateInfo.pAttachments = attachmentDescriptions;
 	renderPassCreateInfo.subpassCount = 1;
 	renderPassCreateInfo.pSubpasses = &subpass;
 	renderPassCreateInfo.dependencyCount = static_cast<uint32_t>(dependencies.size());
@@ -1282,17 +1286,119 @@ void App::initShadowPassFramebuffer()
 	VK_CHECK(vkCreateSampler(device, &samplerInfo, nullptr, &shadowSampler));
 
 	// create framebuffer for shadow image
+	VkImageView attachments[2];
+	attachments[1] = shadowImageView;
 	VkExtent2D fbExtent = { 2048u, 2048u };
 	VkFramebufferCreateInfo fbInfo = VkInit::framebufferCreateInfo(shadowPass, fbExtent);
-	fbInfo.attachmentCount = 1;
-	fbInfo.pAttachments = &shadowImageView;
-	VK_CHECK(vkCreateFramebuffer(device, &fbInfo, nullptr, &shadowPassFrameBuffer));
+	fbInfo.attachmentCount = 2;
+	fbInfo.pAttachments = attachments;
+	fbInfo.layers = 1;
+	for (size_t i = 0; i < 6; i++)
+	{
+		attachments[0] = shadowCubeFaceImageViews[i];
+		VK_CHECK(vkCreateFramebuffer(device, &fbInfo, nullptr, &shadowPassCubeFrameBuffers[i]));
+		mainDeletionQueue.push_function([=]()
+			{
+				vkDestroyFramebuffer(device, shadowPassCubeFrameBuffers[i], nullptr);
+			});
+	}
+
 
 	mainDeletionQueue.push_function([=]()
 		{
 			vkDestroyImageView(device, shadowImageView, nullptr);
 			vmaDestroyImage(allocator, shadowImage.image, shadowImage.allocation);
 			vkDestroySampler(device, shadowSampler, nullptr);
-			vkDestroyFramebuffer(device, shadowPassFrameBuffer, nullptr);
 		});
+}
+
+void App::initCubeMap()
+{
+	VkFormat format = VK_FORMAT_R32_SFLOAT;
+
+	VkImageCreateInfo imageCreateInfo = VkInit::imageCreateInfo(format,
+		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+		{ 2048, 2048, 1 },
+		VK_SAMPLE_COUNT_1_BIT);
+	imageCreateInfo.arrayLayers = 6;
+	imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	imageCreateInfo.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+	VmaAllocationCreateInfo allocInfo = {};
+	allocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+	allocInfo.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+	vmaCreateImage(allocator, &imageCreateInfo, &allocInfo, &shadowCubeImage.image, &shadowCubeImage.allocation, nullptr);
+
+	VkSamplerCreateInfo sampler = VkInit::samplerCreateInfo(VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+	sampler.mipLodBias = 0.0f;
+	sampler.maxAnisotropy = 1.0f;
+	sampler.compareOp = VK_COMPARE_OP_NEVER;
+	sampler.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+	VK_CHECK(vkCreateSampler(device, &sampler, nullptr, &shadowCubeSampler));
+
+	VkImageViewCreateInfo viewCI = VkInit::imageviewCreateInfo(format, VK_NULL_HANDLE, VK_IMAGE_ASPECT_COLOR_BIT);
+	viewCI.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+	viewCI.components = { VK_COMPONENT_SWIZZLE_R };
+	viewCI.subresourceRange.layerCount = 6;
+	viewCI.image = shadowCubeImage.image;
+	VK_CHECK(vkCreateImageView(device, &viewCI, nullptr, &shadowCubeImageView));
+
+	viewCI.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	viewCI.subresourceRange.layerCount = 1;
+	viewCI.image = shadowCubeImage.image;
+
+	for (size_t i = 0; i < 6; i++)
+	{
+		viewCI.subresourceRange.baseArrayLayer = i;
+		VK_CHECK(vkCreateImageView(device, &viewCI, nullptr, &shadowCubeFaceImageViews[i]));
+		mainDeletionQueue.push_function([=]()
+			{
+				vkDestroyImageView(device, shadowCubeFaceImageViews[i], nullptr);
+			});
+	}
+
+	mainDeletionQueue.push_function([=]()
+		{
+			vkDestroyImageView(device, shadowCubeImageView, nullptr);
+			vmaDestroyImage(allocator, shadowCubeImage.image, shadowCubeImage.allocation);
+		});
+}
+
+void App::updateCubeFace(uint32_t face, VkCommandBuffer cmd, VkExtent2D extent)
+{
+	VkClearValue clearValues[2];
+	clearValues[0].color = { {0.0f, 0.0f, 0.0f, 1.0f} };
+	clearValues[1].depthStencil = { 1.0f, 0 };
+	VkRenderPassBeginInfo renderPassBeginInfo = VkInit::renderpassBeginInfo(shadowPass, extent, shadowPassCubeFrameBuffers[face]);
+	renderPassBeginInfo.clearValueCount = 2;
+	renderPassBeginInfo.pClearValues = clearValues;
+
+	lightUBO.view = glm::mat4(1.0f);
+	switch (face)
+	{
+	case 0: // pos x
+		lightUBO.view = glm::rotate(lightUBO.view, glm::radians(90.f), glm::vec3(0.0f, 1.0f, 0.0f));
+		lightUBO.view = glm::rotate(lightUBO.view, glm::radians(180.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+		break;
+	case 1:	// neg x
+		lightUBO.view = glm::rotate(lightUBO.view, glm::radians(-90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+		lightUBO.view = glm::rotate(lightUBO.view, glm::radians(180.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+		break;
+	case 2:	// pos y
+		lightUBO.view = glm::rotate(lightUBO.view, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+		break;
+	case 3:	// neg y
+		lightUBO.view = glm::rotate(lightUBO.view, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+		break;
+	case 4:	// pos z
+		lightUBO.view = glm::rotate(lightUBO.view, glm::radians(180.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+		break;
+	case 5:	// neg z
+		lightUBO.view = glm::rotate(lightUBO.view, glm::radians(180.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+		break;
+	}
+
+	vkCmdBeginRenderPass(cmd, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+	drawObjects(cmd, renderables.data(), renderables.size(), true);
+	vkCmdEndRenderPass(cmd);
 }

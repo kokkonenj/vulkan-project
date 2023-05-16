@@ -12,7 +12,10 @@ layout (location = 2) out vec3 vertPos;
 layout (location = 3) out vec3 normal;
 layout (location = 4) out vec3 camPos;
 layout (location = 5) out vec4 tangent;
-layout (location = 6) out vec4 outShadowCoord;
+
+layout (location = 6) out vec3 outLightVec;
+layout (location = 7) out vec3 outWorldPos;
+layout (location = 8) out vec3 outLightPos;
 
 layout(set = 0, binding = 0) uniform CameraBuffer
 {
@@ -21,9 +24,20 @@ layout(set = 0, binding = 0) uniform CameraBuffer
 	mat4 viewproj;
 } cameraData;
 
+layout (set = 0, binding = 1) uniform SceneData
+{
+	vec4 lightPosition;
+	vec4 lightColor;
+	vec4 ambientColor;
+	vec4 sunlightDirection;
+	vec4 sunlightColor;
+} sceneData;
+
 layout(set = 0, binding = 3) uniform UBO
 {
-	mat4 lightSpace;
+	mat4 model;
+	mat4 view;
+	mat4 projection;
 } ubo;
 
 struct ObjectData
@@ -61,5 +75,8 @@ void main()
 	vertPos = vec3(vertPos4);
 	normal = normalize(mat3(modelMatrix) * aNormal);
 	tangent = vec4(normalize(mat3(modelMatrix) * aTangent.xyz), aTangent.w);
-	outShadowCoord = (biasMat * ubo.lightSpace * modelMatrix) * vec4(aPos, 1.0);
+	
+	outLightVec = normalize(sceneData.lightPosition.xyz - aPos.xyz);
+	outWorldPos = aPos;
+	outLightPos = sceneData.lightPosition.xyz;
 }

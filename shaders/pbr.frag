@@ -6,7 +6,9 @@ layout (location = 2) in vec3 vertPos;
 layout (location = 3) in vec3 normal;
 layout (location = 4) in vec3 camPos;
 layout (location = 5) in vec4 inTangent;
-layout (location = 6) in vec4 inShadowCoord;
+layout (location = 6) in vec3 inLightVec;
+layout (location = 7) in vec3 inWorldPos;
+layout (location = 8) in vec3 inLightPos;
 
 layout (location = 0) out vec4 outColor;
 
@@ -21,7 +23,7 @@ layout (set = 0, binding = 1) uniform SceneData
 
 const float PI = 3.14159265;
 
-layout (set = 0, binding = 2) uniform sampler2D shadowMap;
+layout (set = 0, binding = 2) uniform samplerCube shadowCubeMap;
 layout (set = 2, binding = 0) uniform sampler2D albedoMap;
 layout (set = 2, binding = 1) uniform sampler2D metallicMap;
 layout (set = 2, binding = 2) uniform sampler2D roughnessMap;
@@ -75,16 +77,7 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
 
 float calculateShadow(vec4 shadowCoord)
 {
-	float shadow = 1.0;
-	if (shadowCoord.z > -1.0 && shadowCoord.z < 1.0)
-	{
-		float dist = texture(shadowMap, shadowCoord.st).r;
-		if (shadowCoord.w > 0.0 && dist < shadowCoord.z)
-		{
-			shadow = 0.03;
-		}
-	}
-	return shadow;
+	return 0.0;
 }
 
 void main()
@@ -129,7 +122,12 @@ void main()
 	float NdotL = max(dot(N, L), 0.0);
 	Lo += (kD * albedo / PI + specular) * radiance * NdotL;
 
-	float shadow = calculateShadow(inShadowCoord/inShadowCoord.w);
+	// shadows
+	vec3 lightVec = inWorldPos - inLightPos;
+	float sampledDist = texture(shadowCubeMap, lightVec).r;
+	float dist = length(lightVec);
+	float shadow = (dist <= sampledDist + 0.15) ? 1.0 : 0.0;
+
 	vec3 ambient = vec3(sceneData.ambientColor) * albedo * ao;
 	vec3 color = ambient + Lo * shadow;
 

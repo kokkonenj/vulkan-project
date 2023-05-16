@@ -99,7 +99,9 @@ struct GPUSceneData
 
 struct GPUlightMVPData
 {
-	glm::mat4 lightMVP;
+	glm::mat4 model;
+	glm::mat4 view;
+	glm::mat4 projection;
 };
 
 struct GPUObjectData
@@ -114,7 +116,7 @@ struct UploadContext
 	VkCommandBuffer commandBuffer;
 };
 
-constexpr unsigned int FRAME_OVERLAP = 2;
+constexpr unsigned int FRAME_OVERLAP = 1;
 
 class App {
 public:
@@ -192,6 +194,15 @@ private:
 	VkPipelineLayout shadowMapPipelineLayout;
 	VkPipeline shadowMapPipeline;
 
+	// omni shadow mapping
+	VkFramebuffer shadowPassCubeFrameBuffers[6];
+	AllocatedImage shadowCubeImage;
+	VkImageView shadowCubeImageView;
+	VkSampler shadowCubeSampler;
+	VkImageView shadowCubeFaceImageViews[6];
+	GPUlightMVPData lightUBO;
+	
+
 	void initVulkan();
 	void initSwapchain();
 	void initCommands();
@@ -221,4 +232,6 @@ private:
 	bool isFormatFilterable(VkPhysicalDevice physDevice, VkFormat format, VkImageTiling tiling);
 	void initShadowPass();
 	void initShadowPassFramebuffer();
+	void initCubeMap();
+	void updateCubeFace(uint32_t face, VkCommandBuffer cmd, VkExtent2D extent);
 };
