@@ -891,7 +891,7 @@ void App::drawObjects(VkCommandBuffer commandBuffer, RenderObject* first, int co
 	vmaUnmapMemory(allocator, sceneParameterBuffer.allocation);
 
 	// send light position data for shadowmapping
-	lightUBO.projection = glm::perspective(glm::radians(90.f), 1.f, 1.0f, 32.f);
+	lightUBO.projection = glm::perspective(glm::radians(90.f), 1.f, 0.1f, 32.f);
 	lightUBO.projection[1][1] *= -1;
 	lightUBO.model = glm::translate(glm::mat4(1.0f), glm::vec3(-sceneParameters.lightPosition.x, -sceneParameters.lightPosition.y, -sceneParameters.lightPosition.z));
 	void* lightMVPData;
